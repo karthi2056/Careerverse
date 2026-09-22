@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "surge": "^0.44.0",
+    "vercel": "^59.11.0"
+  }
+}
