@@ -124,6 +124,7 @@ function initAuthPages() {
       };
 
       window.AppState.user = newUser;
+      window.AppState.profile = null;
       window.saveState();
 
       const loginEmailInput = document.getElementById('login-email');
@@ -181,14 +182,11 @@ function initAuthPages() {
       }
 
       window.AppState.user = matchedUser;
+      window.AppState.profile = window.AppState.profiles[email] || null;
       window.saveState();
       window.showToast(`Welcome back, ${matchedUser.fullName}!`, 'sparkles');
 
-      if (!window.AppState.profile) {
-        window.navigateTo('#profile-setup');
-      } else {
-        window.navigateTo('#career-twin-dashboard');
-      }
+      window.navigateTo(window.AppState.profile ? '#career-twin-dashboard' : '#profile-setup');
     });
   }
 
@@ -202,14 +200,12 @@ function initAuthPages() {
           department: 'Computer Science & AI',
           yearOfStudy: '3rd Year'
         };
+        const emailKey = window.AppState.user.email.toLowerCase();
+        window.AppState.profile = window.AppState.profiles[emailKey] || null;
         window.saveState();
       }
       window.showToast(`Logged in as ${window.AppState.user.fullName}!`, 'sparkles');
-      if (!window.AppState.profile) {
-        window.navigateTo('#profile-setup');
-      } else {
-        window.navigateTo('#career-twin-dashboard');
-      }
+      window.navigateTo(window.AppState.profile ? '#career-twin-dashboard' : '#profile-setup');
     });
   }
 }
@@ -354,7 +350,22 @@ function initProfileSetupForm() {
 
 function renderProfileSetupPage() {
   const p = window.AppState.profile;
-  if (!p) return;
+  if (!p) {
+    document.getElementById('form-profile-setup')?.reset();
+    setupTechSkills = [];
+    setupSoftSkills = [];
+    setupInterests = [];
+    projectCount = 0;
+    certCount = 0;
+    expCount = 0;
+    renderTagPills('setup-tech-container', setupTechSkills, 'setup-tech-input');
+    renderTagPills('setup-soft-container', setupSoftSkills, 'setup-soft-input');
+    renderTagPills('setup-interests-container', setupInterests, 'setup-interests-input');
+    document.getElementById('setup-projects-list')?.replaceChildren();
+    document.getElementById('setup-certs-list')?.replaceChildren();
+    document.getElementById('setup-exp-list')?.replaceChildren();
+    return;
+  }
 
   const colEl = document.getElementById('setup-college');
   const degEl = document.getElementById('setup-degree');
@@ -1239,7 +1250,6 @@ function renderProgressTracking() {
 function initResumePage() {
   const dropzone = document.getElementById('resume-dropzone');
   const fileInput = document.getElementById('resume-file-input');
-  const sampleBtn = document.getElementById('btn-load-sample-resume');
 
   if (!dropzone || !fileInput) return;
 
@@ -1275,48 +1285,86 @@ function initResumePage() {
     }
   });
 
-  if (sampleBtn) {
-    sampleBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const sampleText = `
-Alex Rivera
-Email: alex.rivera@example.com | Phone: +1 (555) 234-5678 | San Francisco, CA
-LinkedIn: linkedin.com/in/alex-rivera-ai | GitHub: github.com/alexrivera-ai
-
-PROFESSIONAL SUMMARY:
-Results-driven AI & Full-Stack Engineer with 3+ years of experience engineering high-throughput machine learning pipelines, RESTful microservices, and reactive web applications. Passionate about LLMs, MLOps, system optimization, and cloud architecture.
-
-TECHNICAL SKILLS:
-- Languages: Python, JavaScript, TypeScript, C++, SQL, Bash, HTML/CSS
-- Frameworks & Libraries: PyTorch, TensorFlow, React, Next.js, Node.js, FastAPI, Flask, Scikit-Learn, Pandas, NumPy
-- Cloud & DevOps: AWS, Docker, Kubernetes, CI/CD, Git, Linux, PostgreSQL, MongoDB, Redis, Pinecone, Vector Databases
-
-EDUCATION:
-Bachelor of Technology in Computer Science & Engineering
-Stanford University / Institute of Technology — CGPA: 3.8 / 4.0 (2020 - 2024)
-
-PROJECTS & EXPERIENCE:
-1. High-Performance AI Resume Analytics Platform (2024)
-   - Architected end-to-end ATS resume parsing engine processing 5,000+ candidate profiles with 98% extraction accuracy.
-   - Reduced API latency by 45% using FastAPI, Redis caching, and async Python worker threads.
-
-2. Distributed Vector Search & RAG Knowledge Pipeline (2023)
-   - Built retrieval-augmented generation pipeline using Pinecone, Llama 3, and LangChain for real-time document search.
-   - Deployed microservice architecture on AWS EKS with Docker containers handling 50k+ daily queries.
-
-CERTIFICATIONS & ACHIEVEMENTS:
-- AWS Certified Cloud Practitioner & Developer Associate
-- IBM Data Science Professional Certification
-- Winner, Global AI Hackathon (1st Place out of 120 Teams)
-`;
-      processResumeEnhanced('Alex_Rivera_AI_Resume.pdf', sampleText);
-    });
-  }
-
   function handleFileRead(file) {
+    const fileName = (file && file.name ? file.name : '').toLowerCase();
+    const isPdf = file && (file.type === 'application/pdf' || fileName.endsWith('.pdf'));
+    const isDocx = file && (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || fileName.endsWith('.docx'));
+
+    if (isPdf && window.pdfjsLib) {
+      const reader = new FileReader();
+      reader.onload = async function (e) {
+        try {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+          const arrayBuffer = e.target.result;
+          const pdf = await window.pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+          let extractedText = '';
+          for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const text = await page.getTextContent({ normalizeWhitespace: true });
+            const lines = [];
+            text.items.filter(item => item.str && item.str.trim()).forEach(item => {
+              const y = item.transform ? Math.round(item.transform[5]) : 0;
+              let line = lines.find(existing => Math.abs(existing.y - y) <= 3);
+              if (!line) {
+                line = { y, text: '' };
+                lines.push(line);
+              }
+              line.text += `${line.text ? ' ' : ''}${item.str.trim()}`;
+            });
+            const pageText = lines
+              .sort((first, second) => second.y - first.y)
+              .map(line => line.text)
+              .join('\n');
+            extractedText += pageText + '\n';
+          }
+          if (extractedText.trim()) {
+            processResumeEnhanced(file.name, extractedText);
+            return;
+          }
+
+          if (!window.Tesseract) {
+            throw new Error('The uploaded PDF has no readable text layer.');
+          }
+
+          let ocrText = '';
+          for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const viewport = page.getViewport({ scale: 2 });
+            const canvas = document.createElement('canvas');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+            const result = await window.Tesseract.recognize(canvas, 'eng');
+            ocrText += `${result.data.text}\n`;
+          }
+          processResumeEnhanced(file.name, ocrText);
+        } catch (error) {
+          console.error('PDF parse failed:', error);
+          window.showToast('Unable to read the uploaded PDF. Please upload a clearer resume file.', 'alert-circle');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      return;
+    }
+
+    if (isDocx && window.mammoth) {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const result = await window.mammoth.extractRawText({ arrayBuffer: e.target.result });
+          processResumeEnhanced(file.name, result.value || '');
+        } catch (error) {
+          console.error('DOCX parse failed:', error);
+          window.showToast('Unable to read the uploaded DOCX resume.', 'alert-circle');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = (e) => {
-      const textContent = e.target.result;
+      const textContent = e.target.result || '';
       processResumeEnhanced(file.name, textContent);
     };
     reader.readAsText(file);
@@ -1328,7 +1376,6 @@ function renderResumePageEnhanced() {
 }
 
 function processResumeEnhanced(filename, fileText) {
-  const p = window.AppState.profile;
   const resultsBox = document.getElementById('resume-results-box');
   const laserLine = document.getElementById('resume-laser');
 
@@ -1340,6 +1387,7 @@ function processResumeEnhanced(filename, fileText) {
     if (resultsBox) {
       resultsBox.style.display = 'block';
 
+      const p = window.AppState.profile;
       const res = window.AnalyticsEngine.analyzeResumeEnhanced(fileText, p, filename);
       const parsed = res.parsedDetails;
       
@@ -1426,7 +1474,7 @@ function processResumeEnhanced(filename, fileText) {
             <i data-lucide="user-check"></i> Extracted Professional Profile
           </h4>
           <p style="font-size:0.92rem; color:var(--text-main); background:rgba(255,255,255,0.02); padding:14px; border-radius:8px; border-left:3px solid var(--accent-purple-light); margin-bottom:1rem;">
-            "${parsed.summary}"
+            "${parsed.summary || 'No professional summary detected in the uploaded resume.'}"
           </p>
           <div style="display:flex; flex-wrap:wrap; gap:1.5rem; font-size:0.88rem; color:var(--text-muted);">
             <div><strong style="color:var(--text-main);">LinkedIn:</strong> <a href="${parsed.linkedinUrl}" target="_blank" style="color:var(--accent-blue); text-decoration:none;">${parsed.linkedinUrl}</a></div>
@@ -1448,7 +1496,7 @@ function processResumeEnhanced(filename, fileText) {
                 <span class="badge badge-purple">${parsed.extractedSkills.length} Detected</span>
               </h5>
               <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;">
-                ${parsed.extractedSkills.map(s => `<span class="badge badge-purple" style="font-size:0.82rem; padding:4px 10px;">${s}</span>`).join('')}
+                ${parsed.extractedSkills.length > 0 ? parsed.extractedSkills.map(s => `<span class="badge badge-purple" style="font-size:0.82rem; padding:4px 10px;">${s}</span>`).join('') : '<span style="font-size:0.8rem; color:var(--text-muted);">No resume skills detected.</span>'}
               </div>
             </div>
 
@@ -1485,10 +1533,10 @@ function processResumeEnhanced(filename, fileText) {
               <i data-lucide="graduation-cap"></i> Extracted Education
             </h4>
             <div style="background:rgba(255,255,255,0.02); padding:12px; border-radius:8px;">
-              <strong style="font-size:1rem; color:var(--text-main);">${parsed.education.degree}</strong>
-              <p style="color:var(--text-muted); font-size:0.88rem; margin-top:2px;">${parsed.education.college}</p>
+              <strong style="font-size:1rem; color:var(--text-main);">${parsed.education.degree || 'Education details not detected'}</strong>
+              <p style="color:var(--text-muted); font-size:0.88rem; margin-top:2px;">${parsed.education.college || 'Institution not detected'}</p>
               <div style="display:flex; justify-content:space-between; margin-top:10px; font-size:0.82rem; color:var(--accent-cyan);">
-                <span>Academic Score: <strong>${parsed.education.cgpa}</strong></span>
+                <span>Academic Score: <strong>${parsed.education.cgpa || 'Not detected'}</strong></span>
                 <span class="badge badge-green">OCR Verified</span>
               </div>
             </div>
@@ -1500,11 +1548,11 @@ function processResumeEnhanced(filename, fileText) {
               <i data-lucide="award"></i> Extracted Certifications
             </h4>
             <ul style="list-style:none; padding:0; display:flex; flex-direction:column; gap:8px;">
-              ${parsed.certifications.map(c => `
+              ${parsed.certifications.length > 0 ? parsed.certifications.map(c => `
                 <li style="background:rgba(255,255,255,0.02); padding:8px 12px; border-radius:6px; font-size:0.88rem; display:flex; align-items:center; gap:8px;">
                   <i data-lucide="shield-check" style="color:var(--accent-green); width:16px;"></i> ${c}
                 </li>
-              `).join('')}
+              `).join('') : '<li style="color:var(--text-muted); font-size:0.88rem;">No certifications detected.</li>'}
             </ul>
           </div>
         </div>
@@ -1515,14 +1563,14 @@ function processResumeEnhanced(filename, fileText) {
             <i data-lucide="folder-git-2"></i> Extracted Projects & Work Experience
           </h4>
           <div style="display:flex; flex-direction:column; gap:10px;">
-            ${parsed.projects.map((proj, idx) => `
+            ${[...(parsed.projects || []), ...(parsed.experience || []).map(item => `Experience: ${item}`)].map((proj, idx) => `
               <div style="background:rgba(255,255,255,0.02); padding:12px 16px; border-radius:8px; border-left:3px solid var(--accent-blue);">
                 <strong style="font-size:0.95rem; color:var(--text-main); display:block;">Item #${idx + 1}: ${proj}</strong>
                 <p style="font-size:0.85rem; color:var(--text-muted); margin-top:4px;">
                   Parsed technical achievements and project details extracted directly from resume file structure.
                 </p>
               </div>
-            `).join('')}
+            `).join('') || '<p style="color:var(--text-muted); font-size:0.88rem;">No project or work experience details detected.</p>'}
           </div>
         </div>
 
@@ -1682,6 +1730,377 @@ window.downloadResumeReport = function() {
 /* AI MOCK INTERVIEW CONTROLLER */
 
 let mockInterviewState = null;
+let mockInterviewAttentionTracking = null;
+let mockInterviewCameraMonitor = null;
+
+function stopMockInterviewVoice() {
+  if (mockInterviewState?.voiceRecognition) {
+    mockInterviewState.voiceRecognition.onend = null;
+    mockInterviewState.voiceRecognition.stop();
+    mockInterviewState.voiceRecognition = null;
+  }
+  if (window.speechSynthesis) window.speechSynthesis.cancel();
+}
+
+function updateRound3VoicePanel() {
+  const state = mockInterviewState;
+  if (!state) return;
+  const status = document.getElementById('mock-voice-status');
+  const transcript = document.getElementById('mock-voice-transcript');
+  const startButton = document.getElementById('mock-voice-start');
+  const finishButton = document.getElementById('mock-voice-finish');
+  if (status) status.textContent = state.voiceError || state.voiceStatus || 'Ready';
+  if (transcript) transcript.textContent = state.voiceTranscript || 'Your spoken answer will appear here.';
+  if (startButton) startButton.disabled = state.voiceListening || state.voiceSpeaking;
+  if (finishButton) finishButton.disabled = !state.voiceTranscript || !state.voiceListening;
+  const submitButton = document.getElementById('mock-submit-answer');
+  if (submitButton) submitButton.disabled = state.voiceListening || !state.voiceTranscript;
+}
+
+function startRound3VoiceAnswer() {
+  const state = mockInterviewState;
+  if (!state || state.sequence[state.currentIndex]?.round !== 3 || state.paused || state.voiceSpeaking) return;
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Recognition) {
+    state.voiceError = 'Speech recognition is not supported by this browser.';
+    updateRound3VoicePanel();
+    return;
+  }
+
+  if (state.voiceRecognition) state.voiceRecognition.stop();
+  const recognition = new Recognition();
+  recognition.lang = 'en-US';
+  recognition.continuous = false;
+  recognition.interimResults = true;
+  recognition.maxAlternatives = 1;
+  state.voiceRecognition = recognition;
+  state.voiceStatus = 'Listening for your answer...';
+  state.voiceError = null;
+  state.voiceListening = true;
+  updateRound3VoicePanel();
+
+  recognition.onresult = event => {
+    let transcript = '';
+    for (let index = 0; index < event.results.length; index++) transcript += `${event.results[index][0].transcript} `;
+    state.voiceTranscript = transcript.trim();
+    updateRound3VoicePanel();
+  };
+  recognition.onerror = event => {
+    state.voiceListening = false;
+    state.voiceStatus = 'Microphone stopped';
+    state.voiceError = event.error === 'not-allowed' ? 'Microphone access is required to answer Round 3.' : 'Unable to understand the microphone input. Please try again.';
+    updateRound3VoicePanel();
+  };
+  recognition.onend = () => {
+    state.voiceListening = false;
+    state.voiceStatus = state.voiceTranscript ? 'Answer captured. Review the transcript, then submit.' : 'No answer captured. Start the microphone and answer aloud.';
+    updateRound3VoicePanel();
+  };
+
+  try {
+    recognition.start();
+  } catch (error) {
+    state.voiceListening = false;
+    state.voiceError = 'Microphone could not be started. Please try again.';
+    updateRound3VoicePanel();
+  }
+}
+
+window.startRound3VoiceAnswer = startRound3VoiceAnswer;
+
+window.finishRound3VoiceAnswer = function() {
+  if (!mockInterviewState?.voiceRecognition) return;
+  mockInterviewState.voiceRecognition.stop();
+};
+
+function startRound3VoiceInteraction() {
+  const state = mockInterviewState;
+  const question = state?.sequence[state.currentIndex];
+  if (!state || question?.round !== 3 || state.voiceQuestionId === question.id || state.paused) return;
+
+  stopMockInterviewVoice();
+  state.voiceQuestionId = question.id;
+  state.voiceTranscript = '';
+  state.voiceListening = false;
+  state.voiceSpeaking = true;
+  state.voiceStatus = 'AI HR interviewer is asking the question...';
+  state.voiceError = null;
+  updateRound3VoicePanel();
+
+  if (!window.speechSynthesis) {
+    state.voiceSpeaking = false;
+    state.voiceError = 'Voice output is not supported by this browser.';
+    updateRound3VoicePanel();
+    return;
+  }
+
+  const prompt = new SpeechSynthesisUtterance(`This is a strict HR interview. ${question.question} Please answer verbally and provide a specific example where relevant.`);
+  prompt.rate = 0.95;
+  prompt.pitch = 1;
+  prompt.onend = () => {
+    state.voiceSpeaking = false;
+    if (mockInterviewState === state && !state.paused) startRound3VoiceAnswer();
+  };
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(prompt);
+}
+
+function stopMockInterviewAttentionTracking() {
+  if (!mockInterviewAttentionTracking) return;
+
+  document.removeEventListener('visibilitychange', mockInterviewAttentionTracking.handleVisibilityChange);
+  document.removeEventListener('fullscreenchange', mockInterviewAttentionTracking.handleFullscreenChange);
+  window.removeEventListener('blur', mockInterviewAttentionTracking.handleWindowBlur);
+  window.removeEventListener('focus', mockInterviewAttentionTracking.handleWindowFocus);
+  mockInterviewAttentionTracking = null;
+}
+
+function stopMockInterviewCamera() {
+  if (mockInterviewCameraMonitor?.timer) clearTimeout(mockInterviewCameraMonitor.timer);
+  if (mockInterviewState?.cameraStream) {
+    mockInterviewState.cameraStream.getTracks().forEach(track => track.stop());
+    mockInterviewState.cameraStream = null;
+  }
+  mockInterviewCameraMonitor = null;
+}
+
+function recordRound3CameraViolation(reason = 'Prolonged face movement or attention away from the camera/screen') {
+  const state = mockInterviewState;
+  if (!state || state.report || state.terminated) return;
+
+  const now = Date.now();
+  if (mockInterviewCameraMonitor && now - mockInterviewCameraMonitor.lastViolationAt < 5000) return;
+  if (mockInterviewCameraMonitor) mockInterviewCameraMonitor.lastViolationAt = now;
+  state.round3Violations++;
+  state.cameraViolationEvents.push({ count: state.round3Violations, timestamp: new Date(now).toISOString(), reason: reason });
+
+  if (state.round3Violations > 3) {
+    state.terminated = true;
+    stopMockInterviewAttentionTracking();
+    stopMockInterviewVoice();
+    stopMockInterviewCamera();
+    exitMockInterviewFullscreen();
+    renderMockInterviewPage();
+    window.showToast('Interview terminated after the final camera warning.', 'alert-circle');
+    return;
+  }
+
+  window.showToast(`Warning ${state.round3Violations}: ${reason}. Please return your attention to the camera or interview screen.`, 'alert-triangle');
+}
+
+function startMockInterviewFaceMonitor() {
+  const state = mockInterviewState;
+  const video = document.getElementById('mock-interview-camera');
+  if (!state?.cameraStream || !video || !window.FaceDetector) return;
+
+  const detector = new window.FaceDetector({ fastMode: true, maxDetectedFaces: 1 });
+  mockInterviewCameraMonitor = { detector: detector, timer: null, awaySince: null, lastViolationAt: 0, previousFace: null, movementSince: null };
+
+  const inspectFrame = async function() {
+    if (!mockInterviewState || mockInterviewState.report || mockInterviewState.terminated) return;
+    if (document.hidden || !document.hasFocus() || !document.fullscreenElement) {
+      mockInterviewCameraMonitor.awaySince = null;
+      mockInterviewCameraMonitor.timer = setTimeout(inspectFrame, 1000);
+      return;
+    }
+
+    const videoTrack = mockInterviewState.cameraStream?.getVideoTracks()[0];
+    if (!videoTrack || videoTrack.readyState !== 'live') {
+      recordRound3CameraViolation('Camera turned off or became unavailable');
+      mockInterviewCameraMonitor.timer = setTimeout(inspectFrame, 1000);
+      return;
+    }
+
+    try {
+      const faces = await detector.detect(video);
+      const bounds = faces[0]?.boundingBox;
+      const faceCenterX = bounds ? bounds.x + (bounds.width / 2) : 0;
+      const faceCenterY = bounds ? bounds.y + (bounds.height / 2) : 0;
+      const inView = Boolean(bounds) && faceCenterX >= video.videoWidth * 0.2 && faceCenterX <= video.videoWidth * 0.8 && faceCenterY >= video.videoHeight * 0.15 && faceCenterY <= video.videoHeight * 0.85;
+      const previousFace = mockInterviewCameraMonitor.previousFace;
+      const faceMovement = previousFace && bounds ? Math.hypot(faceCenterX - previousFace.x, faceCenterY - previousFace.y) / Math.max(video.videoWidth, video.videoHeight) : 0;
+      mockInterviewCameraMonitor.previousFace = bounds ? { x: faceCenterX, y: faceCenterY } : null;
+
+      if (inView && faceMovement < 0.12) {
+        mockInterviewCameraMonitor.awaySince = null;
+        mockInterviewCameraMonitor.movementSince = null;
+      } else if (!inView) {
+        mockInterviewCameraMonitor.movementSince = null;
+        if (!mockInterviewCameraMonitor.awaySince) mockInterviewCameraMonitor.awaySince = Date.now();
+        if (Date.now() - mockInterviewCameraMonitor.awaySince >= 5000) {
+          mockInterviewCameraMonitor.awaySince = null;
+          recordRound3CameraViolation('Repeated or prolonged attention away from the camera/screen');
+        }
+      } else {
+        mockInterviewCameraMonitor.awaySince = null;
+        if (!mockInterviewCameraMonitor.movementSince) mockInterviewCameraMonitor.movementSince = Date.now();
+        if (Date.now() - mockInterviewCameraMonitor.movementSince >= 5000) {
+          mockInterviewCameraMonitor.movementSince = null;
+          recordRound3CameraViolation('Repeated or prolonged distracting head/body movement');
+        }
+      }
+    } catch (error) {
+      // Face detection support varies by browser; camera access remains active.
+    }
+
+    if (mockInterviewCameraMonitor) mockInterviewCameraMonitor.timer = setTimeout(inspectFrame, 1000);
+  };
+
+  inspectFrame();
+}
+
+function ensureRound3Camera() {
+  const state = mockInterviewState;
+  if (!state || state.report || state.terminated || state.cameraStream || state.cameraRequestPending || state.cameraError) return;
+
+  state.cameraRequestPending = true;
+  if (!navigator.mediaDevices?.getUserMedia) {
+    state.cameraRequestPending = false;
+    state.cameraError = 'Camera access is not supported by this browser.';
+    renderMockInterviewPage();
+    return;
+  }
+
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false })
+    .then(stream => {
+      if (!mockInterviewState || mockInterviewState.report || mockInterviewState.terminated) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      state.cameraStream = stream;
+      state.cameraRequestPending = false;
+      renderMockInterviewPage();
+      const video = document.getElementById('mock-interview-camera');
+      if (video) {
+        video.srcObject = stream;
+        video.play().catch(() => {});
+      }
+      startMockInterviewFaceMonitor();
+    })
+    .catch(() => {
+      state.cameraRequestPending = false;
+      state.cameraError = 'Camera access is required for the interview. Please allow camera access and restart the interview.';
+      renderMockInterviewPage();
+    });
+}
+
+function restartRound3MockInterview() {
+  const state = mockInterviewState;
+  if (!state) return;
+
+  stopMockInterviewVoice();
+  stopMockInterviewCamera();
+  const round3Start = state.sequence.findIndex(question => question.round === 3);
+  const round3Questions = window.AnalyticsEngine.generateMockInterviewQuestions(window.AppState.profile).round3_hr;
+  Object.keys(state.answersMap).filter(id => id.startsWith('r3_')).forEach(id => delete state.answersMap[id]);
+  state.sequence = state.sequence.slice(0, round3Start).concat(round3Questions);
+  state.currentIndex = round3Start;
+  state.round3Violations = 0;
+  state.cameraViolationEvents = [];
+  state.cameraRequestPending = false;
+  state.cameraError = null;
+  state.paused = false;
+  state.pauseReason = null;
+  startMockInterviewAttentionTracking();
+  renderMockInterviewPage();
+}
+
+function requestMockInterviewFullscreen() {
+  if (document.fullscreenElement || !document.documentElement.requestFullscreen) return;
+
+  try {
+    const fullscreenRequest = document.documentElement.requestFullscreen();
+    if (fullscreenRequest && typeof fullscreenRequest.catch === 'function') {
+      fullscreenRequest.catch(() => {
+        window.showToast('Full-screen mode could not be enabled. Please remain on the interview screen.', 'alert-circle');
+      });
+    }
+  } catch (error) {
+    window.showToast('Full-screen mode could not be enabled. Please remain on the interview screen.', 'alert-circle');
+  }
+}
+
+function exitMockInterviewFullscreen() {
+  if (document.fullscreenElement && document.exitFullscreen) {
+    document.exitFullscreen().catch(() => {});
+  }
+}
+
+function startMockInterviewAttentionTracking() {
+  stopMockInterviewAttentionTracking();
+
+  const tracking = {
+    lastViolationAt: 0,
+    pauseInterview: function() {
+      if (!mockInterviewState || mockInterviewState.report) return;
+      mockInterviewState.paused = true;
+      mockInterviewState.pauseReason = 'attention';
+      renderMockInterviewPage();
+    },
+    resumeInterviewIfReady: function() {
+      if (!mockInterviewState || mockInterviewState.report || !mockInterviewState.paused) return;
+      if (document.hidden || !document.hasFocus() || !document.fullscreenElement) return;
+
+      mockInterviewState.paused = false;
+      window.showToast('Interview resumed. Please remain on this screen.', 'check');
+      renderMockInterviewPage();
+    },
+    handleViolation: function() {
+      if (!mockInterviewState || mockInterviewState.report) return;
+
+      const now = Date.now();
+      if (now - tracking.lastViolationAt < 500) return;
+      tracking.lastViolationAt = now;
+      mockInterviewState.violations++;
+
+      if (mockInterviewState.violations > 3) {
+        stopMockInterviewAttentionTracking();
+        window.showToast('Interview terminated after 3 violations. Restarting from the beginning.', 'alert-circle');
+        window.startMockInterview();
+        return;
+      }
+
+      tracking.pauseInterview();
+      window.showToast('Warning: Tab switching is not allowed during the mock interview. Please stay on the interview tab. After 3 violations, the interview will restart from the beginning.', 'alert-triangle');
+    },
+    handleVisibilityChange: function() {
+      if (document.hidden) tracking.handleViolation();
+      else tracking.resumeInterviewIfReady();
+    },
+    handleWindowBlur: function() {
+      tracking.handleViolation();
+    },
+    handleWindowFocus: function() {
+      tracking.resumeInterviewIfReady();
+    },
+    handleFullscreenChange: function() {
+      if (!document.fullscreenElement) {
+        tracking.handleViolation();
+        if (mockInterviewState && !mockInterviewState.report) requestMockInterviewFullscreen();
+      } else tracking.resumeInterviewIfReady();
+    }
+  };
+
+  mockInterviewAttentionTracking = tracking;
+  document.addEventListener('visibilitychange', tracking.handleVisibilityChange);
+  document.addEventListener('fullscreenchange', tracking.handleFullscreenChange);
+  window.addEventListener('blur', tracking.handleWindowBlur);
+  window.addEventListener('focus', tracking.handleWindowFocus);
+}
+
+window.cancelMockInterview = function() {
+  stopMockInterviewAttentionTracking();
+  stopMockInterviewVoice();
+  stopMockInterviewCamera();
+  exitMockInterviewFullscreen();
+  mockInterviewState = null;
+  renderMockInterviewPage();
+};
+
+window.quitMockInterview = function() {
+  const confirmed = window.confirm('Are you sure you want to quit the interview? Your current progress may be lost.');
+  if (confirmed) window.cancelMockInterview();
+};
 
 function renderMockInterviewPage() {
   const p = window.AppState.profile;
@@ -1762,18 +2181,87 @@ window.startMockInterview = function() {
     currentIndex: 0,
     answersMap: {},
     currentAnswerInput: '',
-    report: null
+    report: null,
+    violations: 0,
+    round3Violations: 0,
+    cameraViolationEvents: [],
+    terminated: false,
+    cameraStream: null,
+    cameraRequestPending: false,
+    cameraError: null,
+    paused: false,
+    pauseReason: null,
+    answerEvaluations: {},
+    voiceQuestionId: null,
+    voiceTranscript: '',
+    voiceListening: false,
+    voiceSpeaking: false,
+    voiceStatus: '',
+    voiceError: null,
+    voiceRecognition: null
   };
 
+  startMockInterviewAttentionTracking();
+  requestMockInterviewFullscreen();
   renderMockInterviewPage();
 };
 
 function renderMockInterviewFlow(container) {
   const st = mockInterviewState;
+  if (!st.report && !st.terminated) ensureRound3Camera();
+
+  if (st.terminated) {
+    container.innerHTML = `
+      <div class="glass-card" style="max-width:760px; margin:0 auto; text-align:center;">
+        <i data-lucide="shield-alert" style="font-size:3.5rem; color:var(--accent-red); margin-bottom:1rem;"></i>
+        <h2>Interview Terminated</h2>
+        <p style="color:var(--text-muted);">The interview ended after four camera-monitoring violations.</p>
+        <p style="font-size:0.85rem; color:var(--text-muted);">${st.cameraViolationEvents.length} monitoring events were recorded for the interview report.</p>
+        <div style="text-align:left; font-size:0.78rem; margin:1rem 0;">${st.cameraViolationEvents.map(event => `<div style="padding:6px 0; border-bottom:1px solid var(--border-light);">Warning ${event.count} - ${new Date(event.timestamp).toLocaleString()}: ${event.reason}</div>`).join('')}</div>
+        <button class="btn btn-primary" onclick="window.cancelMockInterview();">Start a New Interview</button>
+      </div>
+    `;
+    if (window.lucide) lucide.createIcons();
+    return;
+  }
+
+  if (st.paused) {
+    container.innerHTML = `
+      <div class="glass-card" style="max-width:760px; margin:0 auto; text-align:center;">
+        <i data-lucide="pause-circle" style="font-size:3.5rem; color:var(--accent-pink); margin-bottom:1rem;"></i>
+        <h2>Interview Paused</h2>
+        <p style="color:var(--text-muted);">Return to this interview page and restore full-screen mode to continue.</p>
+        <button class="btn btn-secondary" onclick="window.quitMockInterview();">Quit Interview</button>
+      </div>
+    `;
+    if (window.lucide) lucide.createIcons();
+    return;
+  }
 
   if (st.report) {
+    stopMockInterviewAttentionTracking();
+    stopMockInterviewVoice();
+    stopMockInterviewCamera();
+    exitMockInterviewFullscreen();
     // Render Detailed Interview Report
     const rep = st.report;
+    const monitoring = rep.monitoring || { violationCount: 0, violationEvents: [] };
+    const answerEvaluationRows = (rep.answerEvaluations || []).map(evaluation => {
+      const question = st.sequence.find(item => item.id === evaluation.questionId);
+      const coveredPoints = evaluation.keyPointsCovered.length > 0
+        ? evaluation.keyPointsCovered.map(point => `<span class="badge badge-green" style="font-size:0.75rem;">${point}</span>`).join(' ')
+        : '<span style="color:var(--accent-red);">No expected key points detected</span>';
+      return `
+        <div style="padding:10px 0; border-bottom:1px solid var(--border-light);">
+          <div style="display:flex; justify-content:space-between; gap:12px; font-size:0.84rem;">
+            <strong>${question ? question.topic : evaluation.questionId}</strong>
+            <strong style="color:${evaluation.score >= 60 ? 'var(--accent-green)' : 'var(--accent-red)'};">${evaluation.score}%</strong>
+          </div>
+          <div style="font-size:0.74rem; color:var(--text-muted); margin-top:4px;">Relevance ${evaluation.relevance}% | Correctness ${evaluation.correctness}% | Completeness ${evaluation.completeness}% | Communication ${evaluation.communication || 0}% | Behavioural qualities ${evaluation.behavioralQuality || 0}%</div>
+          <div style="font-size:0.78rem; margin-top:5px;">${evaluation.feedback || 'No additional feedback available.'}</div>
+          <div style="display:flex; flex-wrap:wrap; gap:5px; margin-top:6px;">${coveredPoints}</div>
+        </div>`;
+    }).join('');
     container.innerHTML = `
       <div class="glass-card" style="max-width:760px; margin:0 auto; text-align:center;">
         <i data-lucide="award" style="font-size:3.5rem; color:var(--accent-purple-light); margin-bottom:1rem;"></i>
@@ -1825,6 +2313,12 @@ function renderMockInterviewFlow(container) {
           </div>
         </div>
 
+        <div style="text-align:left; margin-bottom:1.5rem;">
+          <h4 style="font-size:1rem; margin-bottom:6px;">Key-Point Evaluation</h4>
+          <p style="color:var(--text-muted); font-size:0.8rem; margin-bottom:6px;">Scores reflect correctness, relevance, completeness, and expected concepts covered.</p>
+          ${answerEvaluationRows}
+        </div>
+
         <!-- Strengths, Improvements, and Topics -->
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; text-align:left; margin-bottom:1.5rem;">
           <div style="background:rgba(34,197,94,0.1); border:1px solid rgba(34,197,94,0.3); padding:12px; border-radius:8px;">
@@ -1849,8 +2343,14 @@ function renderMockInterviewFlow(container) {
           </div>
         </div>
 
+        <div style="background:rgba(14,165,233,0.08); border:1px solid rgba(14,165,233,0.25); padding:12px; border-radius:8px; text-align:left; margin-bottom:1.5rem;">
+          <strong style="color:var(--accent-cyan);">AI Camera Monitoring</strong>
+          <p style="font-size:0.82rem; color:var(--text-muted); margin-top:5px;">${monitoring.violationCount} violation warning event(s) recorded. Natural blinking, small movements, gestures, and posture adjustments were ignored.</p>
+          ${monitoring.violationEvents.length ? `<ul style="padding-left:18px; font-size:0.78rem; margin-top:6px;">${monitoring.violationEvents.map(event => `<li>Warning ${event.count} - ${new Date(event.timestamp).toLocaleString()}: ${event.reason}</li>`).join('')}</ul>` : '<p style="font-size:0.78rem; color:var(--accent-green); margin-top:5px;">No camera-monitoring violations recorded.</p>'}
+        </div>
+
         <div style="display:flex; justify-content:center; gap:1rem;">
-          <button class="btn btn-primary" onclick="mockInterviewState = null; renderMockInterviewPage();"><i data-lucide="rotate-ccw"></i> Retake Interview</button>
+          <button class="btn btn-primary" onclick="window.cancelMockInterview();"><i data-lucide="rotate-ccw"></i> Retake Interview</button>
           <button class="btn btn-secondary" onclick="window.navigateTo('#placement-readiness');"><i data-lucide="target"></i> View Updated Placement Readiness</button>
         </div>
       </div>
@@ -1881,6 +2381,16 @@ function renderMockInterviewFlow(container) {
         </div>
       </div>
 
+        ${st.cameraStream ? `
+        <div class="glass-card" style="margin-bottom:1.5rem; display:flex; align-items:center; gap:1rem;">
+          ${st.cameraStream ? '<video id="mock-interview-camera" autoplay muted playsinline style="width:150px; height:100px; object-fit:cover; border-radius:8px; border:2px solid var(--accent-green); transform:scaleX(-1);"></video>' : '<i data-lucide="camera" style="font-size:2rem; color:var(--accent-pink);"></i>'}
+          <div>
+            <strong>Camera Monitoring: Active</strong>
+            <p style="font-size:0.8rem; color:var(--text-muted); margin-top:4px;">AI monitors face visibility, attention direction, and sustained movement. Natural blinking, gestures, and posture changes are allowed.</p>
+          </div>
+        </div>
+      ` : (st.cameraRequestPending ? '<div class="glass-card" style="margin-bottom:1.5rem;">Requesting camera access...</div>' : '')}
+
       <!-- Question View Card -->
       <div class="glass-card" style="margin-bottom:1.5rem;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
@@ -1892,36 +2402,89 @@ function renderMockInterviewFlow(container) {
           <i data-lucide="bot" style="color:var(--accent-purple-light);"></i> ${currQ.question}
         </h3>
 
-        <!-- Student Answer Text Area -->
-        <div class="form-group">
-          <label class="form-label">Your Response (Type your response in detail):</label>
-          <textarea id="mock-answer-input" class="form-control" style="min-height:120px;" placeholder="Type your answer here...">${st.answersMap[currQ.id] || ''}</textarea>
-        </div>
+        ${currQ.round === 3 ? `
+          <div class="form-group" style="text-align:left;">
+            <label class="form-label">AI HR Interview Voice Response</label>
+            <p id="mock-voice-status" style="color:var(--accent-cyan); font-size:0.84rem;">${st.voiceStatus || 'Preparing the AI interviewer...'}</p>
+            <div id="mock-voice-transcript" style="min-height:72px; padding:12px; border:1px solid var(--border-light); border-radius:8px; color:var(--text-muted);">${st.voiceTranscript || 'Your spoken answer will appear here.'}</div>
+            <div style="display:flex; gap:0.75rem; margin-top:10px;">
+              <button id="mock-voice-start" type="button" class="btn btn-secondary" onclick="window.startRound3VoiceAnswer();">Start Microphone</button>
+              <button id="mock-voice-finish" type="button" class="btn btn-primary" onclick="window.finishRound3VoiceAnswer();" disabled>Finish Spoken Answer</button>
+            </div>
+          </div>
+        ` : `
+          <div class="form-group">
+            <label class="form-label">Your Response (Type your response in detail):</label>
+            <textarea id="mock-answer-input" class="form-control" style="min-height:120px;" placeholder="Type your answer here...">${st.answersMap[currQ.id] || ''}</textarea>
+          </div>
+        `}
 
         <div style="display:flex; justify-content:space-between; align-items:center;">
-          <button class="btn btn-secondary" onclick="mockInterviewState = null; renderMockInterviewPage();">Quit Interview</button>
-          <button class="btn btn-primary" onclick="submitMockAnswer()">${st.currentIndex === st.sequence.length - 1 ? 'Submit & Generate Report' : 'Submit Answer & Next Question →'}</button>
+          <button class="btn btn-secondary" onclick="window.quitMockInterview();">Quit Interview</button>
+          <button id="mock-submit-answer" class="btn btn-primary" onclick="submitMockAnswer()"${currQ.round === 3 ? ' disabled' : ''}>${st.currentIndex === st.sequence.length - 1 ? 'Submit & Generate Report' : 'Submit Answer & Next Question →'}</button>
         </div>
       </div>
     </div>
   `;
   if (window.lucide) lucide.createIcons();
+  if (currQ.round === 3) startRound3VoiceInteraction();
+  if (st.cameraStream) {
+    const video = document.getElementById('mock-interview-camera');
+    if (video) {
+      video.srcObject = st.cameraStream;
+      video.play().catch(() => {});
+    }
+    if (mockInterviewCameraMonitor?.timer) clearTimeout(mockInterviewCameraMonitor.timer);
+    mockInterviewCameraMonitor = null;
+    startMockInterviewFaceMonitor();
+  }
 }
 
 window.submitMockAnswer = function() {
   const st = mockInterviewState;
   if (!st) return;
-
   const currQ = st.sequence[st.currentIndex];
-  const textEl = document.getElementById('mock-answer-input');
-  const ansText = textEl ? textEl.value.trim() : '';
-
-  if (!ansText) {
-    window.showToast('Please type a response before proceeding', 'alert-circle');
+  if (!st.cameraStream || st.cameraError) {
+    window.showToast('Camera access is required to continue the interview.', 'camera');
+    return;
+  }
+  if (currQ.round === 3 && st.voiceListening) {
+    window.showToast('Please finish the spoken answer before submitting.', 'mic');
+    return;
+  }
+  if (st.paused || document.hidden || !document.hasFocus() || !document.fullscreenElement) {
+    if (!st.paused && mockInterviewAttentionTracking) mockInterviewAttentionTracking.handleViolation();
     return;
   }
 
+  const textEl = document.getElementById('mock-answer-input');
+  const ansText = currQ.round === 3 ? (st.voiceTranscript || '').trim() : (textEl ? textEl.value.trim() : '');
+
+  if (!ansText) {
+    window.showToast(currQ.round === 3 ? 'Please answer aloud before proceeding.' : 'Please type a response before proceeding', 'alert-circle');
+    return;
+  }
+
+  if (currQ.round === 3) stopMockInterviewVoice();
   st.answersMap[currQ.id] = ansText;
+  if (currQ.round === 3) {
+    const evaluation = window.AnalyticsEngine.evaluateMockInterviewAnswer(ansText, currQ);
+    st.answerEvaluations[currQ.id] = evaluation;
+    window.showToast(`HR response evaluated: ${evaluation.score}/100`, evaluation.score >= 60 ? 'check' : 'alert-circle');
+
+    if (!currQ.followUp && evaluation.keyPointsCovered.length < evaluation.keyPointsExpected.length) {
+      const missingPoints = (currQ.expectedPoints || []).filter(point => !evaluation.keyPointsCovered.includes(point.label));
+      const followUpQuestion = {
+        id: `r3_followup_${currQ.id}`,
+        round: 3,
+        topic: 'HR Follow-up',
+        followUp: true,
+        question: `Follow-up: Please give a specific example that further addresses ${missingPoints.map(point => point.label).join(', ')}.`,
+        expectedPoints: missingPoints
+      };
+      st.sequence.splice(st.currentIndex + 1, 0, followUpQuestion);
+    }
+  }
 
   if (st.currentIndex < st.sequence.length - 1) {
     st.currentIndex++;
@@ -1929,7 +2492,12 @@ window.submitMockAnswer = function() {
     renderMockInterviewPage();
   } else {
     // Generate Report after all 3 rounds complete
-    const reportRes = window.AnalyticsEngine.evaluateMockInterviewReport(st.answersMap, window.AppState.profile);
+    stopMockInterviewAttentionTracking();
+    const reportRes = window.AnalyticsEngine.evaluateMockInterviewReport(st.answersMap, window.AppState.profile, st.sequence, {
+      violationCount: st.round3Violations,
+      violationEvents: st.cameraViolationEvents,
+      terminated: st.terminated
+    });
     st.report = reportRes;
 
     window.AppState.profile.mockInterviewResults = reportRes;

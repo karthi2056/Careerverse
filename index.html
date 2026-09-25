@@ -387,7 +387,6 @@
                 <input type="file" id="resume-file-input" accept=".pdf,.docx,.txt,.rtf" style="display:none;">
                 <div style="display:flex; justify-content:center; gap:0.75rem; flex-wrap:wrap; position:relative; z-index:2;">
                   <button class="btn btn-primary" onclick="document.getElementById('resume-file-input').click()"><i data-lucide="file-up"></i> Select Resume File</button>
-                  <button class="btn btn-secondary" id="btn-load-sample-resume"><i data-lucide="sparkles"></i> Try Sample Resume</button>
                 </div>
               </div>
               <div id="resume-results-box" style="display:none; margin-top:1.5rem;"></div>
@@ -469,6 +468,9 @@
   </div>
 
   <!-- Application Scripts -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="js/analytics_engine.js?v=20260918_v3"></script>
   <script src="js/app.js?v=20260918_v3"></script>
   <script src="js/pages.js?v=20260918_v3"></script>

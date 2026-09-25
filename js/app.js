@@ -3,10 +3,20 @@
    ========================================================================== */
 
 // Initialize Global State
+const storedProfiles = JSON.parse(localStorage.getItem('cv_profiles')) || {};
+const legacyProfile = JSON.parse(localStorage.getItem('cv_profile')) || null;
+const storedUser = JSON.parse(localStorage.getItem('cv_user')) || null;
+if (storedUser && legacyProfile && !storedProfiles[storedUser.email.toLowerCase()]) {
+  storedProfiles[storedUser.email.toLowerCase()] = legacyProfile;
+  localStorage.setItem('cv_profiles', JSON.stringify(storedProfiles));
+  localStorage.removeItem('cv_profile');
+}
+
 window.AppState = {
-  user: JSON.parse(localStorage.getItem('cv_user')) || null,
+  user: storedUser,
   users: JSON.parse(localStorage.getItem('cv_users')) || [],
-  profile: JSON.parse(localStorage.getItem('cv_profile')) || null,
+  profiles: storedProfiles,
+  profile: storedUser ? storedProfiles[storedUser.email.toLowerCase()] || null : null,
   progress: JSON.parse(localStorage.getItem('cv_progress')) || {
     completedRoadmapSteps: [],
     acquiredSkills: [],
@@ -43,10 +53,10 @@ window.saveState = function() {
     localStorage.removeItem('cv_user');
   }
 
-  if (window.AppState.profile) {
-    localStorage.setItem('cv_profile', JSON.stringify(window.AppState.profile));
-  } else {
-    localStorage.removeItem('cv_profile');
+  if (window.AppState.user) {
+    const emailKey = window.AppState.user.email.toLowerCase();
+    window.AppState.profiles[emailKey] = window.AppState.profile;
+    localStorage.setItem('cv_profiles', JSON.stringify(window.AppState.profiles));
   }
 
   localStorage.setItem('cv_progress', JSON.stringify(window.AppState.progress));
@@ -378,6 +388,7 @@ window.closeModal = function() {
 // Global Logout Handler
 window.handleLogout = function() {
   window.AppState.user = null;
+  window.AppState.profile = null;
   window.saveState();
   window.showToast('Logged out successfully', 'log-out');
   window.navigateTo('#login');

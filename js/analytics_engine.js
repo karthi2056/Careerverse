@@ -417,41 +417,92 @@ window.AnalyticsEngine = {
 
     return {
       round1_technical: [
-        { id: "r1_q1", round: 1, topic: "Core Technical", question: `As a candidate for ${target}, how do you apply ${validatedSkills[0] || 'core programming'} to solve complex engineering challenges?` },
-        { id: "r1_q2", round: 1, topic: "Architecture & Design", question: `Explain the internal architecture of ${validatedSkills[1] || 'system design'} and how you handle performance bottlenecks.` },
-        { id: "r1_q3", round: 1, topic: "Data Structures & Algorithmic Complexity", question: "Describe a scenario where choosing the right data structure significantly optimized execution time or memory footprint." },
-        { id: "r1_q4", round: 1, topic: "Debugging & Error Handling", question: "Walk me through how you isolate and debug a complex intermittent production bug or memory leak." },
-        { id: "r1_q5", round: 1, topic: "API & Data Integration", question: "How do you design secure, scalable RESTful or GraphQL APIs for distributed client applications?" }
+        { id: "r1_q1", round: 1, topic: "Core Technical", question: `As a candidate for ${target}, how do you apply ${validatedSkills[0] || 'core programming'} to solve complex engineering challenges?`, expectedPoints: [{ label: "applies the skill", terms: [validatedSkills[0] || "programming", "implement", "use"] }, { label: "breaks down the problem", terms: ["decompose", "break down", "analyze", "problem-solving"] }, { label: "explains trade-offs or validates the solution", terms: ["trade-off", "complexity", "test", "validate", "measure"] }] },
+        { id: "r1_q2", round: 1, topic: "Architecture & Design", question: `Explain the internal architecture of ${validatedSkills[1] || 'system design'} and how you handle performance bottlenecks.`, expectedPoints: [{ label: "explains components and data flow", terms: ["component", "layer", "data flow", "request flow", "architecture"] }, { label: "identifies bottlenecks", terms: ["bottleneck", "latency", "slow", "profile", "monitor"] }, { label: "gives a scalability or optimization approach", terms: ["cache", "scale", "optimize", "database", "load balance", "complexity"] }] },
+        { id: "r1_q3", round: 1, topic: "Data Structures & Algorithmic Complexity", question: "Describe a scenario where choosing the right data structure significantly optimized execution time or memory footprint.", expectedPoints: [{ label: "names an appropriate data structure", terms: ["array", "hash", "map", "set", "tree", "heap", "queue", "stack", "graph"] }, { label: "connects the choice to the use case", terms: ["lookup", "search", "sort", "duplicate", "access", "use case"] }, { label: "explains complexity or measurable impact", terms: ["o(1)", "o(log", "o(n)", "complexity", "faster", "memory", "performance"] }] },
+        { id: "r1_q4", round: 1, topic: "Debugging & Error Handling", question: "Walk me through how you isolate and debug a complex intermittent production bug or memory leak.", expectedPoints: [{ label: "reproduces or observes the issue", terms: ["reproduce", "logs", "monitor", "trace", "observe", "metrics"] }, { label: "isolates the root cause", terms: ["isolate", "root cause", "debugger", "profile", "hypothesis"] }, { label: "fixes and verifies the result", terms: ["fix", "test", "regression", "deploy", "verify"] }] },
+        { id: "r1_q5", round: 1, topic: "API & Data Integration", question: "How do you design secure, scalable RESTful or GraphQL APIs for distributed client applications?", expectedPoints: [{ label: "secures and validates requests", terms: ["authentication", "authorization", "token", "validate", "input", "security"] }, { label: "defines a clear API contract", terms: ["endpoint", "schema", "contract", "status code", "version"] }, { label: "handles scale and reliability", terms: ["cache", "rate limit", "queue", "load", "scale", "retry", "monitor"] }] }
       ],
       round2_project: [
-        { id: "r2_q1", round: 2, topic: "Project Overview", question: `Tell me about your project "${firstProj}". What were the primary architectural decisions and tech stack chosen?` },
-        { id: "r2_q2", round: 2, topic: "Contribution & Tech Rationale", question: `Why did you select the specific frameworks for "${firstProj}", and what was your exact individual contribution?` },
-        { id: "r2_q3", round: 2, topic: "Challenges & Problem Solving", question: `What was the most difficult technical roadblock you encountered in "${firstProj}" or "${secondProj}", and how did you resolve it?` }
+        { id: "r2_q1", round: 2, topic: "Project Overview", question: `Tell me about your project "${firstProj}". What were the primary architectural decisions and tech stack chosen?`, expectedPoints: [{ label: "explains the project goal", terms: [firstProj.toLowerCase(), "built", "developed", "goal", "problem"] }, { label: "describes architecture", terms: ["architecture", "component", "frontend", "backend", "database", "api"] }, { label: "names and justifies the tech stack", terms: ["stack", "framework", "library", "because", "chose", "selected"] }] },
+        { id: "r2_q2", round: 2, topic: "Contribution & Tech Rationale", question: `Why did you select the specific frameworks for "${firstProj}", and what was your exact individual contribution?`, expectedPoints: [{ label: "justifies framework choices", terms: ["because", "chose", "selected", "suitable", "trade-off", "framework"] }, { label: "states individual ownership", terms: ["i built", "i implemented", "my role", "my contribution", "responsible", "developed"] }, { label: "explains the delivered result", terms: ["result", "impact", "improved", "performance", "feature", "outcome"] }] },
+        { id: "r2_q3", round: 2, topic: "Challenges & Problem Solving", question: `What was the most difficult technical roadblock you encountered in "${firstProj}" or "${secondProj}", and how did you resolve it?`, expectedPoints: [{ label: "describes a specific challenge", terms: ["challenge", "problem", "bug", "roadblock", "difficult", "issue"] }, { label: "explains the solution and reasoning", terms: ["solution", "debug", "resolved", "fixed", "approach"] }, { label: "states the outcome or lesson", terms: ["result", "outcome", "learned", "improved", "impact", "metric"] }] }
       ],
       round3_hr: [
-        { id: "r3_q1", round: 3, topic: "Self Introduction", question: `Tell me about yourself, your background, and what drives your passion for a career as a ${target}.` },
-        { id: "r3_q2", round: 3, topic: "Strengths & Growth Areas", question: "What do you consider your greatest technical strength, and what area are you actively working to improve?" },
-        { id: "r3_q3", round: 3, topic: "Career Alignment", question: `Why do you specifically want to work in the ${profile?.preferences?.industry || 'Technology'} industry as a ${target}?` },
-        { id: "r3_q4", round: 3, topic: "Behavioral & Conflict", question: "Describe a situation where you had a tight deadline or disagreement with a teammate. How did you handle it?" }
+        { id: "r3_q1", round: 3, topic: "Self Introduction", question: `Tell me about yourself, your background, and what drives your passion for a career as a ${target}.`, expectedPoints: [{ label: "summarizes background", terms: ["background", "education", "experience", "studied", "graduate"] }, { label: "connects skills or experience to the role", terms: [target.toLowerCase(), "skill", "project", "experience", "technical"] }, { label: "explains motivation", terms: ["passion", "motivated", "interest", "driven", "goal"] }], behavioralSignals: [{ label: "professionalism", terms: ["professional", "responsible", "reliable"] }, { label: "self-awareness", terms: ["learned", "growth", "feedback"] }] },
+        { id: "r3_q2", round: 3, topic: "Strengths & Growth Areas", question: "What do you consider your greatest technical strength, and what area are you actively working to improve?", expectedPoints: [{ label: "identifies a specific strength", terms: ["strength", "strong", "good at", "expertise"] }, { label: "supports the strength with evidence", terms: ["example", "project", "experience", "delivered", "demonstrated"] }, { label: "identifies a realistic improvement plan", terms: ["improve", "learning", "practice", "course", "working on", "feedback"] }], behavioralSignals: [{ label: "self-awareness", terms: ["aware", "feedback", "improve", "learn"] }, { label: "growth mindset", terms: ["growth", "practice", "develop", "learn"] }] },
+        { id: "r3_q3", round: 3, topic: "Career Alignment", question: `Why do you specifically want to work in the ${profile?.preferences?.industry || 'Technology'} industry as a ${target}?`, expectedPoints: [{ label: "explains interest in the industry", terms: [(profile?.preferences?.industry || "technology").toLowerCase(), "industry", "interested", "passion"] }, { label: "connects the role to career goals", terms: [target.toLowerCase(), "career", "goal", "grow", "contribute"] }, { label: "shows relevant preparation", terms: ["skill", "project", "experience", "learned", "prepared"] }], behavioralSignals: [{ label: "motivation", terms: ["motivated", "passion", "purpose", "interest"] }, { label: "commitment", terms: ["commit", "dedicated", "long-term", "contribute"] }] },
+        { id: "r3_q4", round: 3, topic: "Behavioral & Conflict", question: "Describe a situation where you had a tight deadline or disagreement with a teammate. How did you handle it?", expectedPoints: [{ label: "describes a specific situation", terms: ["situation", "deadline", "disagreement", "conflict", "example"] }, { label: "explains communication and action", terms: ["communicate", "discuss", "listen", "prioritize", "collaborate", "team"] }, { label: "states the result or lesson", terms: ["result", "outcome", "delivered", "resolved", "learned"] }], behavioralSignals: [{ label: "teamwork", terms: ["team", "collaborate", "support", "together"] }, { label: "adaptability", terms: ["adapt", "flexible", "adjust", "change"] }, { label: "problem-solving", terms: ["solve", "solution", "resolve", "prioritize"] }] }
       ]
     };
   },
 
-  evaluateMockInterviewReport: function(answersMap, profile) {
-    let techTotalLen = 0;
-    let projTotalLen = 0;
-    let hrTotalLen = 0;
+  evaluateMockInterviewAnswer: function(answerText, question) {
+    const answer = (answerText || '').trim().toLowerCase();
+    const expectedPoints = question?.expectedPoints || [];
+    const matchedPoints = expectedPoints.filter(point =>
+      point.terms.some(term => answer.includes(term.toLowerCase()))
+    );
+    const keyPointCoverage = expectedPoints.length ? matchedPoints.length / expectedPoints.length : 0;
+    const wordCount = answer ? answer.split(/\s+/).length : 0;
+    const sentenceCount = answer ? answer.split(/[.!?]+/).filter(Boolean).length : 0;
+    const completeness = Math.min(wordCount / 35, 1);
+    const communication = wordCount >= 12 && sentenceCount >= 2 ? 1 : Math.min(wordCount / 24, 1);
+    const behavioralSignals = question?.behavioralSignals || [];
+    const behavioralMatches = behavioralSignals.filter(signal =>
+      signal.terms.some(term => answer.includes(term.toLowerCase()))
+    );
+    const behavioralQuality = behavioralSignals.length
+      ? behavioralMatches.length / behavioralSignals.length
+      : 1;
+    const correctness = keyPointCoverage;
+    const relevance = matchedPoints.length > 0 ? Math.min(keyPointCoverage + 0.15, 1) : 0;
+    const missingPoints = expectedPoints.filter(point => !matchedPoints.includes(point));
+    const feedback = matchedPoints.length === expectedPoints.length
+      ? 'The response addressed the expected concepts and provided relevant evidence.'
+      : matchedPoints.length > 0
+        ? `The response was relevant but could be more complete by addressing: ${missingPoints.map(point => point.label).join(', ')}.`
+        : 'The response did not clearly address the expected concepts for this question.';
+    const score = Math.round(((correctness * 0.25) + (relevance * 0.20) + (keyPointCoverage * 0.20) + (completeness * 0.15) + (communication * 0.10) + (behavioralQuality * 0.10)) * 100);
 
-    Object.keys(answersMap).forEach(key => {
-      const text = (answersMap[key] || '').trim();
-      if (key.startsWith('r1')) techTotalLen += text.length;
-      if (key.startsWith('r2')) projTotalLen += text.length;
-      if (key.startsWith('r3')) hrTotalLen += text.length;
+    return {
+      score: score,
+      keyPointsExpected: expectedPoints.map(point => point.label),
+      keyPointsCovered: matchedPoints.map(point => point.label),
+      keyPointCoverage: Math.round(keyPointCoverage * 100),
+      correctness: Math.round(correctness * 100),
+      relevance: Math.round(relevance * 100),
+      completeness: Math.round(completeness * 100),
+      communication: Math.round(communication * 100),
+      behavioralQuality: Math.round(behavioralQuality * 100),
+      feedback: feedback
+    };
+  },
+
+  evaluateMockInterviewReport: function(answersMap, profile, questions, monitoring = {}) {
+    const questionMap = (questions || []).reduce((map, question) => {
+      map[question.id] = question;
+      return map;
+    }, {});
+    const answerEvaluations = Object.keys(answersMap).map(key => {
+      const evaluation = this.evaluateMockInterviewAnswer(answersMap[key], questionMap[key]);
+
+      return {
+        questionId: key,
+        ...evaluation
+      };
     });
 
-    const techScore = Math.min(Math.max(Math.round((techTotalLen / 250) * 85 + 15), 55), 98);
-    const projScore = Math.min(Math.max(Math.round((projTotalLen / 180) * 85 + 15), 50), 96);
-    const hrScore = Math.min(Math.max(Math.round((hrTotalLen / 200) * 85 + 15), 60), 95);
+    const scoreForRound = (prefix) => {
+      const roundAnswers = answerEvaluations.filter(result => result.questionId.startsWith(prefix));
+      return roundAnswers.length
+        ? Math.round(roundAnswers.reduce((total, result) => total + result.score, 0) / roundAnswers.length)
+        : 0;
+    };
+
+    const techScore = scoreForRound('r1');
+    const projScore = scoreForRound('r2');
+    const hrScore = scoreForRound('r3');
 
     const overallScore = Math.round((techScore * 0.45) + (projScore * 0.35) + (hrScore * 0.20));
 
@@ -463,6 +514,13 @@ window.AnalyticsEngine = {
         technical: techScore,
         project: projScore,
         hrCommunication: hrScore
+      },
+      answerEvaluations: answerEvaluations,
+      monitoring: {
+        cameraRequired: true,
+        violationCount: monitoring.violationCount || 0,
+        violationEvents: monitoring.violationEvents || [],
+        terminated: Boolean(monitoring.terminated)
       },
       strengths: [
         "Articulated technical reasoning with clear problem-solving steps.",
@@ -484,39 +542,34 @@ window.AnalyticsEngine = {
 
   // 10. Intelligent Resume Text Parser
   parseResumeDetails: function(fileText, profile, filename) {
-    const text = fileText || '';
+    const text = (fileText || '').trim();
 
     // Email Extraction
     const emailMatch = text.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/);
-    const email = emailMatch ? emailMatch[0] : (profile?.email || 'alex.rivera@example.com');
+    const email = emailMatch ? emailMatch[0] : (profile?.email || '');
 
     // Phone Extraction
     const phoneMatch = text.match(/\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/);
-    const phone = phoneMatch ? phoneMatch[0] : (profile?.phone || '+1 (555) 234-5678');
+    const phone = phoneMatch ? phoneMatch[0] : (profile?.phone || '');
 
     // Candidate Name Extraction
-    let candidateName = profile?.fullName;
+    let candidateName = profile?.fullName || '';
     if (!candidateName) {
       const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0 && !l.toUpperCase().includes('RESUME') && !l.toUpperCase().includes('CURRICULUM'));
       if (lines.length > 0 && lines[0].length < 40 && /^[a-zA-Z\s.-]+$/.test(lines[0])) {
         candidateName = lines[0];
-      } else if (emailMatch) {
-        const prefix = emailMatch[0].split('@')[0].replace(/[._-]/g, ' ');
-        candidateName = prefix.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-      } else {
-        candidateName = 'Alex Rivera';
       }
     }
 
     // Links Extraction
     const githubMatch = text.match(/github\.com\/[A-Za-z0-9_-]+/i);
     const linkedinMatch = text.match(/linkedin\.com\/in\/[A-Za-z0-9_-]+/i);
-    const githubUrl = githubMatch ? `https://${githubMatch[0]}` : (profile?.github || 'https://github.com/alexrivera-ai');
-    const linkedinUrl = linkedinMatch ? `https://${linkedinMatch[0]}` : (profile?.linkedin || 'https://linkedin.com/in/alex-rivera-ai');
+    const githubUrl = githubMatch ? `https://${githubMatch[0]}` : (profile?.github || '');
+    const linkedinUrl = linkedinMatch ? `https://${linkedinMatch[0]}` : (profile?.linkedin || '');
 
     // Target Role & Location
-    const targetRole = profile?.targetCareer || 'AI Engineer';
-    const location = profile?.academic?.location || 'San Francisco, CA';
+    const targetRole = profile?.targetCareer || '';
+    const location = profile?.academic?.location || '';
 
     // Summary / Objective Extraction
     let summary = '';
@@ -525,11 +578,8 @@ window.AnalyticsEngine = {
       const line = summaryMatch[0].replace(/^(?:summary|professional summary|profile|about me|objective)[:\s-]*/i, '').trim().split('\n')[0];
       if (line.length > 20) summary = line;
     }
-    if (!summary || summary.length < 20) {
-      summary = `Motivated ${targetRole} with strong analytical skills, hands-on project experience, data engineering capabilities, and automated workflows. Seeking high-impact tech opportunities.`;
-    }
 
-    // Skill Extraction against comprehensive dictionary
+    // Skill Extraction against comprehensive dictionary only when present in the actual resume text
     const KNOWN_SKILLS = [
       'Python', 'Java', 'JavaScript', 'TypeScript', 'C++', 'C#', 'Go', 'Rust', 'PHP', 'Ruby', 'Swift', 'Kotlin', 'R', 'SQL', 'HTML', 'CSS', 'Bash',
       'React', 'Next.js', 'Angular', 'Vue.js', 'Node.js', 'Express', 'Django', 'Flask', 'FastAPI', 'Spring Boot', 'Tailwind', 'Bootstrap',
@@ -547,16 +597,10 @@ window.AnalyticsEngine = {
       }
     });
 
-    if (extractedSkills.length < 4 && profile?.technicalSkills) {
-      profile.technicalSkills.forEach(s => {
-        if (!extractedSkills.includes(s)) extractedSkills.push(s);
-      });
-    }
-
     // Education Extraction
-    let educationDegree = profile?.academic?.degree || 'B.Tech Computer Science & Engineering';
-    let educationCollege = profile?.academic?.college || 'Stanford University / Institute of Technology';
-    let cgpa = profile?.academic?.cgpa || '3.8 / 4.0';
+    let educationDegree = profile?.academic?.degree || '';
+    let educationCollege = profile?.academic?.college || '';
+    let cgpa = profile?.academic?.cgpa || '';
 
     const degreeMatch = text.match(/(B\.Tech|B\.E\.|B\.S\.|M\.S\.|M\.Tech|Bachelor|Master|Ph\.D)[^\n,.]*/i);
     if (degreeMatch) educationDegree = degreeMatch[0].trim();
@@ -577,25 +621,45 @@ window.AnalyticsEngine = {
       });
     }
     if (projects.length === 0 && profile?.projects) {
-      profile.projects.forEach(p => projects.push(p.title || p.name || 'Academic Capstone Project'));
-    }
-    if (projects.length === 0) {
-      projects.push('AI Career Analytics Engine — High performance ML analytics platform');
-      projects.push('Scalable Microservices API — RESTful architecture with Docker');
+      profile.projects.slice(0, 3).forEach(project => {
+        const name = project.name || project.title || '';
+        const description = project.description ? ` - ${project.description}` : '';
+        if (name) projects.push(`${name}${description}`);
+      });
     }
 
     // Certifications & Achievements Extraction
     const certs = [];
     const certMatches = text.match(/(?:AWS|Azure|Google Cloud|Certified|Certificate|Coursera|Meta|IBM)[^\n,.]*/gi);
     if (certMatches) {
-      certMatches.slice(0, 3).forEach(c => certs.push(c.trim()));
+      certMatches.slice(0, 3).forEach(c => {
+        const clean = c.trim();
+        if (clean) certs.push(clean);
+      });
     }
     if (certs.length === 0 && profile?.certifications) {
-      profile.certifications.forEach(c => certs.push(c.name || c.title || 'AWS Certified Cloud Practitioner'));
+      profile.certifications.slice(0, 3).forEach(cert => {
+        const name = cert.name || cert.title || cert;
+        const issuer = cert.issuer ? ` - ${cert.issuer}` : '';
+        if (name) certs.push(`${name}${issuer}`);
+      });
     }
-    if (certs.length === 0) {
-      certs.push('AWS Certified Developer Associate');
-      certs.push('IBM Data Science Professional Certificate');
+
+    const experience = [];
+    const experienceMatches = text.match(/(?:experience|internship|worked at|employment)[:\s]*([^\n]+)/gi);
+    if (experienceMatches) {
+      experienceMatches.slice(0, 3).forEach(item => {
+        const cleaned = item.replace(/^(?:experience|internship|worked at|employment)[:\s]*/i, '').trim();
+        if (cleaned.length > 5) experience.push(cleaned);
+      });
+    }
+    if (experience.length === 0 && profile?.experience) {
+      profile.experience.slice(0, 3).forEach(item => {
+        const role = item.role || '';
+        const company = item.company ? ` at ${item.company}` : '';
+        const duration = item.duration ? ` (${item.duration})` : '';
+        if (role || item.company) experience.push(`${role}${company}${duration}`.trim());
+      });
     }
 
     // Document & Audit Metrics
@@ -631,6 +695,7 @@ window.AnalyticsEngine = {
       },
       projects: projects,
       certifications: certs,
+      experience: experience,
       audit: {
         wordCount: words,
         lineCount: lines,

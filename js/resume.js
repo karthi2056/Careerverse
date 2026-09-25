@@ -9,7 +9,6 @@ document.addEventListener('DOMContentLoaded', () => {
 function initResumeAnalyzer() {
   const dropzone = document.getElementById('resume-dropzone');
   const fileInput = document.getElementById('resume-file-input');
-  const sampleBtn = document.getElementById('btn-load-sample-resume');
 
   if (!dropzone || !fileInput) return;
 
@@ -47,12 +46,6 @@ function initResumeAnalyzer() {
     }
   });
 
-  // Sample Resume Quick Action
-  if (sampleBtn) {
-    sampleBtn.addEventListener('click', () => {
-      handleResumeFile({ name: 'Alex_Rivera_AI_Resume.pdf' });
-    });
-  }
 }
 
 function handleResumeFile(file) {
