@@ -1732,6 +1732,11 @@ window.downloadResumeReport = function() {
 let mockInterviewState = null;
 let mockInterviewAttentionTracking = null;
 let mockInterviewCameraMonitor = null;
+let mockInterviewReadyCamera = null;
+let mockInterviewCameraRequestPending = false;
+let mockInterviewCameraError = null;
+let mockInterviewTimer = null;
+const MOCK_INTERVIEW_DURATION_MS = 30 * 60 * 1000;
 
 function stopMockInterviewVoice() {
   if (mockInterviewState?.voiceRecognition) {
@@ -1740,6 +1745,57 @@ function stopMockInterviewVoice() {
     mockInterviewState.voiceRecognition = null;
   }
   if (window.speechSynthesis) window.speechSynthesis.cancel();
+}
+
+function stopMockInterviewTimer() {
+  if (mockInterviewTimer) clearInterval(mockInterviewTimer);
+  mockInterviewTimer = null;
+}
+
+function formatMockInterviewTime(milliseconds) {
+  const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
+  const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
+  const seconds = (totalSeconds % 60).toString().padStart(2, '0');
+  return `${minutes}:${seconds}`;
+}
+
+function updateMockInterviewTimer() {
+  const state = mockInterviewState;
+  if (!state) {
+    stopMockInterviewTimer();
+    return;
+  }
+  if (state.report || state.terminated) {
+    stopMockInterviewTimer();
+    return;
+  }
+
+  state.timeRemainingMs = Math.max(0, state.deadlineAt - Date.now());
+  const timer = document.getElementById('mock-interview-timer');
+  if (timer) timer.textContent = formatMockInterviewTime(state.timeRemainingMs);
+  if (state.timeRemainingMs <= 0) endMockInterviewByTimeout();
+}
+
+function startMockInterviewTimer() {
+  stopMockInterviewTimer();
+  updateMockInterviewTimer();
+  mockInterviewTimer = setInterval(updateMockInterviewTimer, 1000);
+}
+
+function endMockInterviewByTimeout() {
+  const state = mockInterviewState;
+  if (!state || state.report || state.terminated) return;
+
+  state.terminated = true;
+  state.timeoutReached = true;
+  state.paused = false;
+  state.pauseReason = null;
+  stopMockInterviewTimer();
+  stopMockInterviewAttentionTracking();
+  stopMockInterviewVoice();
+  stopMockInterviewCamera();
+  exitMockInterviewFullscreen();
+  renderMockInterviewPage();
 }
 
 function updateRound3VoicePanel() {
@@ -1845,6 +1901,34 @@ function startRound3VoiceInteraction() {
   window.speechSynthesis.speak(prompt);
 }
 
+window.repeatMockInterviewQuestion = function() {
+  const state = mockInterviewState;
+  const question = state?.sequence[state.currentIndex];
+  if (!state || question?.round !== 3 || state.paused || state.report || state.terminated) return;
+  if (!window.speechSynthesis) {
+    window.showToast('Voice output is not supported by this browser.', 'alert-circle');
+    return;
+  }
+
+  stopMockInterviewVoice();
+  state.voiceQuestionId = question.id;
+  state.voiceTranscript = '';
+  state.voiceListening = false;
+  state.voiceSpeaking = true;
+  state.voiceStatus = 'Repeating the current question...';
+  state.voiceError = null;
+  updateRound3VoicePanel();
+
+  const prompt = new SpeechSynthesisUtterance(question.question);
+  prompt.rate = 0.95;
+  prompt.pitch = 1;
+  prompt.onend = () => {
+    state.voiceSpeaking = false;
+    if (mockInterviewState === state && !state.paused) startRound3VoiceAnswer();
+  };
+  window.speechSynthesis.speak(prompt);
+};
+
 function stopMockInterviewAttentionTracking() {
   if (!mockInterviewAttentionTracking) return;
 
@@ -1861,8 +1945,83 @@ function stopMockInterviewCamera() {
     mockInterviewState.cameraStream.getTracks().forEach(track => track.stop());
     mockInterviewState.cameraStream = null;
   }
+  if (mockInterviewReadyCamera) {
+    mockInterviewReadyCamera.getTracks().forEach(track => track.stop());
+    mockInterviewReadyCamera = null;
+  }
   mockInterviewCameraMonitor = null;
 }
+
+function handleMockInterviewCameraLost() {
+  const state = mockInterviewState;
+  if (!state) {
+    mockInterviewReadyCamera = null;
+    mockInterviewCameraError = 'Camera is disabled. Enable the camera before starting the interview.';
+    renderMockInterviewPage();
+    return;
+  }
+  if (state.report || state.terminated || state.cameraError) return;
+
+  state.cameraStream = null;
+  state.cameraError = 'Camera is disabled. Enable the camera to resume the interview.';
+  state.paused = true;
+  state.pauseReason = 'camera';
+  stopMockInterviewVoice();
+  renderMockInterviewPage();
+  window.showToast('Interview paused because the camera was disabled.', 'camera-off');
+}
+
+function attachMockInterviewCameraListeners(stream) {
+  stream.getVideoTracks().forEach(track => {
+    track.addEventListener('ended', handleMockInterviewCameraLost, { once: true });
+    track.addEventListener('mute', handleMockInterviewCameraLost, { once: true });
+  });
+}
+
+function requestMockInterviewCamera() {
+  if (mockInterviewCameraRequestPending) return;
+  if (!navigator.mediaDevices?.getUserMedia) {
+    mockInterviewCameraError = 'Camera access is not supported by this browser.';
+    renderMockInterviewPage();
+    return;
+  }
+
+  mockInterviewCameraRequestPending = true;
+  mockInterviewCameraError = null;
+  renderMockInterviewPage();
+
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false })
+    .then(stream => {
+      if (mockInterviewState?.report || mockInterviewState?.terminated) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      if (mockInterviewReadyCamera) mockInterviewReadyCamera.getTracks().forEach(track => track.stop());
+      mockInterviewReadyCamera = stream;
+      attachMockInterviewCameraListeners(stream);
+      mockInterviewCameraRequestPending = false;
+      mockInterviewCameraError = null;
+      if (mockInterviewState) {
+        mockInterviewState.cameraStream = stream;
+        mockInterviewState.cameraError = null;
+        mockInterviewState.paused = false;
+        mockInterviewState.pauseReason = null;
+      }
+      renderMockInterviewPage();
+    })
+    .catch(() => {
+      mockInterviewCameraRequestPending = false;
+      mockInterviewCameraError = 'Camera access is required. Enable the camera before starting the interview.';
+      if (mockInterviewState) {
+        mockInterviewState.cameraError = mockInterviewCameraError;
+        mockInterviewState.paused = true;
+        mockInterviewState.pauseReason = 'camera';
+      }
+      renderMockInterviewPage();
+    });
+}
+
+window.enableMockInterviewCamera = requestMockInterviewCamera;
 
 function recordRound3CameraViolation(reason = 'Prolonged face movement or attention away from the camera/screen') {
   const state = mockInterviewState;
@@ -1949,40 +2108,10 @@ function startMockInterviewFaceMonitor() {
   inspectFrame();
 }
 
-function ensureRound3Camera() {
-  const state = mockInterviewState;
-  if (!state || state.report || state.terminated || state.cameraStream || state.cameraRequestPending || state.cameraError) return;
-
-  state.cameraRequestPending = true;
-  if (!navigator.mediaDevices?.getUserMedia) {
-    state.cameraRequestPending = false;
-    state.cameraError = 'Camera access is not supported by this browser.';
-    renderMockInterviewPage();
-    return;
-  }
-
-  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false })
-    .then(stream => {
-      if (!mockInterviewState || mockInterviewState.report || mockInterviewState.terminated) {
-        stream.getTracks().forEach(track => track.stop());
-        return;
-      }
-      state.cameraStream = stream;
-      state.cameraRequestPending = false;
-      renderMockInterviewPage();
-      const video = document.getElementById('mock-interview-camera');
-      if (video) {
-        video.srcObject = stream;
-        video.play().catch(() => {});
-      }
-      startMockInterviewFaceMonitor();
-    })
-    .catch(() => {
-      state.cameraRequestPending = false;
-      state.cameraError = 'Camera access is required for the interview. Please allow camera access and restart the interview.';
-      renderMockInterviewPage();
-    });
-}
+window.resumeMockInterview = function() {
+  if (!mockInterviewState || mockInterviewState.report || mockInterviewState.terminated) return;
+  requestMockInterviewCamera();
+};
 
 function restartRound3MockInterview() {
   const state = mockInterviewState;
@@ -2054,14 +2183,18 @@ function startMockInterviewAttentionTracking() {
       mockInterviewState.violations++;
 
       if (mockInterviewState.violations > 3) {
+        const cameraStream = mockInterviewState.cameraStream;
         stopMockInterviewAttentionTracking();
-        window.showToast('Interview terminated after 3 violations. Restarting from the beginning.', 'alert-circle');
+        stopMockInterviewVoice();
+        mockInterviewState.cameraStream = null;
+        mockInterviewReadyCamera = cameraStream;
+        window.showToast('Interview restarted after more than 3 tab switches.', 'alert-circle');
         window.startMockInterview();
         return;
       }
 
       tracking.pauseInterview();
-      window.showToast('Warning: Tab switching is not allowed during the mock interview. Please stay on the interview tab. After 3 violations, the interview will restart from the beginning.', 'alert-triangle');
+      window.showToast(`Warning: Please stay on the interview screen. Further tab switching may terminate the interview. Tab switch ${mockInterviewState.violations} of 3.`, 'alert-triangle');
     },
     handleVisibilityChange: function() {
       if (document.hidden) tracking.handleViolation();
@@ -2089,11 +2222,14 @@ function startMockInterviewAttentionTracking() {
 }
 
 window.cancelMockInterview = function() {
+  stopMockInterviewTimer();
   stopMockInterviewAttentionTracking();
   stopMockInterviewVoice();
   stopMockInterviewCamera();
   exitMockInterviewFullscreen();
   mockInterviewState = null;
+  mockInterviewCameraRequestPending = false;
+  mockInterviewCameraError = null;
   renderMockInterviewPage();
 };
 
@@ -2144,7 +2280,11 @@ function renderMockInterviewPage() {
           </div>
         </div>
 
-        <button class="btn btn-primary btn-lg" onclick="startMockInterview()"><i data-lucide="play"></i> Start 3-Round Mock Interview</button>
+        <div style="display:flex; justify-content:center; gap:0.75rem; flex-wrap:wrap;">
+          <button class="btn btn-secondary btn-lg" onclick="window.enableMockInterviewCamera();"${mockInterviewReadyCamera || mockInterviewCameraRequestPending ? ' disabled' : ''}><i data-lucide="camera"></i> ${mockInterviewCameraRequestPending ? 'Requesting Camera...' : 'Enable Camera'}</button>
+          <button class="btn btn-primary btn-lg" onclick="startMockInterview();"${mockInterviewReadyCamera ? '' : ' disabled'}><i data-lucide="play"></i> Start 3-Round Mock Interview</button>
+        </div>
+        ${mockInterviewCameraError ? `<p style="color:var(--accent-red); margin-top:0.75rem;">${mockInterviewCameraError}</p>` : ''}
       </div>
 
       ${previous ? `
@@ -2167,6 +2307,11 @@ function renderMockInterviewPage() {
 
 window.startMockInterview = function() {
   const p = window.AppState.profile;
+  if (!mockInterviewReadyCamera || mockInterviewReadyCamera.getVideoTracks()[0]?.readyState !== 'live') {
+    mockInterviewCameraError = 'Enable the camera before starting the interview.';
+    renderMockInterviewPage();
+    return;
+  }
   const questionsObj = window.AnalyticsEngine.generateMockInterviewQuestions(p);
   
   // Flatten rounds into sequence
@@ -2186,7 +2331,7 @@ window.startMockInterview = function() {
     round3Violations: 0,
     cameraViolationEvents: [],
     terminated: false,
-    cameraStream: null,
+    cameraStream: mockInterviewReadyCamera,
     cameraRequestPending: false,
     cameraError: null,
     paused: false,
@@ -2198,26 +2343,32 @@ window.startMockInterview = function() {
     voiceSpeaking: false,
     voiceStatus: '',
     voiceError: null,
-    voiceRecognition: null
+    voiceRecognition: null,
+    startedAt: Date.now(),
+    deadlineAt: Date.now() + MOCK_INTERVIEW_DURATION_MS,
+    timeRemainingMs: MOCK_INTERVIEW_DURATION_MS,
+    timeoutReached: false
   };
+
+  mockInterviewReadyCamera = null;
 
   startMockInterviewAttentionTracking();
   requestMockInterviewFullscreen();
   renderMockInterviewPage();
+  startMockInterviewTimer();
 };
 
 function renderMockInterviewFlow(container) {
   const st = mockInterviewState;
-  if (!st.report && !st.terminated) ensureRound3Camera();
 
   if (st.terminated) {
     container.innerHTML = `
       <div class="glass-card" style="max-width:760px; margin:0 auto; text-align:center;">
-        <i data-lucide="shield-alert" style="font-size:3.5rem; color:var(--accent-red); margin-bottom:1rem;"></i>
-        <h2>Interview Terminated</h2>
-        <p style="color:var(--text-muted);">The interview ended after four camera-monitoring violations.</p>
-        <p style="font-size:0.85rem; color:var(--text-muted);">${st.cameraViolationEvents.length} monitoring events were recorded for the interview report.</p>
-        <div style="text-align:left; font-size:0.78rem; margin:1rem 0;">${st.cameraViolationEvents.map(event => `<div style="padding:6px 0; border-bottom:1px solid var(--border-light);">Warning ${event.count} - ${new Date(event.timestamp).toLocaleString()}: ${event.reason}</div>`).join('')}</div>
+        <i data-lucide="${st.timeoutReached ? 'timer-off' : 'shield-alert'}" style="font-size:3.5rem; color:var(--accent-red); margin-bottom:1rem;"></i>
+        <h2>${st.timeoutReached ? 'Interview Time Complete' : 'Interview Terminated'}</h2>
+        <p style="color:var(--text-muted);">${st.timeoutReached ? 'The 30-minute mock interview duration has ended. No further answers can be submitted.' : 'The interview ended after four camera-monitoring violations.'}</p>
+        ${st.timeoutReached ? '' : `<p style="font-size:0.85rem; color:var(--text-muted);">${st.cameraViolationEvents.length} monitoring events were recorded for the interview report.</p>
+        <div style="text-align:left; font-size:0.78rem; margin:1rem 0;">${st.cameraViolationEvents.map(event => `<div style="padding:6px 0; border-bottom:1px solid var(--border-light);">Warning ${event.count} - ${new Date(event.timestamp).toLocaleString()}: ${event.reason}</div>`).join('')}</div>`}
         <button class="btn btn-primary" onclick="window.cancelMockInterview();">Start a New Interview</button>
       </div>
     `;
@@ -2228,9 +2379,10 @@ function renderMockInterviewFlow(container) {
   if (st.paused) {
     container.innerHTML = `
       <div class="glass-card" style="max-width:760px; margin:0 auto; text-align:center;">
-        <i data-lucide="pause-circle" style="font-size:3.5rem; color:var(--accent-pink); margin-bottom:1rem;"></i>
+        <i data-lucide="${st.pauseReason === 'camera' ? 'camera-off' : 'pause-circle'}" style="font-size:3.5rem; color:var(--accent-pink); margin-bottom:1rem;"></i>
         <h2>Interview Paused</h2>
-        <p style="color:var(--text-muted);">Return to this interview page and restore full-screen mode to continue.</p>
+        <p style="color:var(--text-muted);">${st.pauseReason === 'camera' ? 'Camera access is required to continue. Enable your camera to resume.' : 'Return to this interview page and restore full-screen mode to continue.'}</p>
+        ${st.pauseReason === 'camera' ? `<button class="btn btn-primary" onclick="window.resumeMockInterview();"${mockInterviewCameraRequestPending ? ' disabled' : ''}><i data-lucide="camera"></i> ${mockInterviewCameraRequestPending ? 'Requesting Camera...' : 'Enable Camera'}</button>` : ''}
         <button class="btn btn-secondary" onclick="window.quitMockInterview();">Quit Interview</button>
       </div>
     `;
@@ -2381,6 +2533,11 @@ function renderMockInterviewFlow(container) {
         </div>
       </div>
 
+      <div style="display:flex; justify-content:space-between; align-items:center; margin:0.75rem 0 1rem;">
+        <span style="font-size:0.85rem; color:var(--text-muted);">Time remaining <span style="margin-left:1rem;">Tab switches: ${st.violations}</span></span>
+        <strong id="mock-interview-timer" style="font-variant-numeric:tabular-nums; color:var(--accent-cyan);">${formatMockInterviewTime(st.timeRemainingMs)}</strong>
+      </div>
+
         ${st.cameraStream ? `
         <div class="glass-card" style="margin-bottom:1.5rem; display:flex; align-items:center; gap:1rem;">
           ${st.cameraStream ? '<video id="mock-interview-camera" autoplay muted playsinline style="width:150px; height:100px; object-fit:cover; border-radius:8px; border:2px solid var(--accent-green); transform:scaleX(-1);"></video>' : '<i data-lucide="camera" style="font-size:2rem; color:var(--accent-pink);"></i>'}
@@ -2401,6 +2558,7 @@ function renderMockInterviewFlow(container) {
         <h3 style="font-size:1.15rem; margin-bottom:1.25rem; line-height:1.4;">
           <i data-lucide="bot" style="color:var(--accent-purple-light);"></i> ${currQ.question}
         </h3>
+        ${currQ.round === 3 ? '<button type="button" class="btn btn-secondary btn-sm" onclick="window.repeatMockInterviewQuestion();"><i data-lucide="repeat-2"></i> Repeat Question</button>' : ''}
 
         ${currQ.round === 3 ? `
           <div class="form-group" style="text-align:left;">
@@ -2443,6 +2601,10 @@ function renderMockInterviewFlow(container) {
 window.submitMockAnswer = function() {
   const st = mockInterviewState;
   if (!st) return;
+  if (st.terminated || st.timeoutReached || Date.now() >= st.deadlineAt) {
+    endMockInterviewByTimeout();
+    return;
+  }
   const currQ = st.sequence[st.currentIndex];
   if (!st.cameraStream || st.cameraError) {
     window.showToast('Camera access is required to continue the interview.', 'camera');

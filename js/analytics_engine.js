@@ -440,23 +440,66 @@ window.AnalyticsEngine = {
   evaluateMockInterviewAnswer: function(answerText, question) {
     const answer = (answerText || '').trim().toLowerCase();
     const expectedPoints = question?.expectedPoints || [];
-    const matchedPoints = expectedPoints.filter(point =>
-      point.terms.some(term => answer.includes(term.toLowerCase()))
-    );
-    const keyPointCoverage = expectedPoints.length ? matchedPoints.length / expectedPoints.length : 0;
+    const normalizeWord = word => word
+      .toLowerCase()
+      .replace(/[^a-z0-9+#.-]/g, '')
+      .replace(/(ies|ing|ed|es|s)$/i, match => match === 'ies' ? 'y' : '');
+    const synonymGroups = [
+      ['apply', 'use', 'implement', 'employ', 'utilize', 'leverage'],
+      ['analyze', 'analyse', 'decompose', 'breakdown', 'isolate', 'identify'],
+      ['improve', 'optimize', 'optimise', 'enhance', 'tune'],
+      ['explain', 'describe', 'outline', 'clarify', 'detail'],
+      ['build', 'develop', 'create', 'implement', 'deliver'],
+      ['fix', 'resolve', 'repair', 'address', 'correct'],
+      ['monitor', 'observe', 'measure', 'track', 'profile'],
+      ['scale', 'scalability', 'scalable', 'expand', 'grow'],
+      ['team', 'teammate', 'colleague', 'collaborate', 'collaboration'],
+      ['goal', 'objective', 'purpose', 'outcome', 'result', 'impact']
+    ];
+    const ignoredConceptWords = new Set(['a', 'an', 'and', 'are', 'as', 'be', 'by', 'for', 'from', 'handle', 'how', 'in', 'is', 'of', 'on', 'or', 'the', 'to', 'was', 'were', 'with']);
+    const conceptFamily = word => {
+      const normalized = normalizeWord(word);
+      return synonymGroups.find(group => group.some(item => normalizeWord(item) === normalized)) || [normalized];
+    };
+    const answerWords = answer.split(/\s+/).map(normalizeWord).filter(Boolean);
+    const phraseExists = phrase => answer.includes(phrase.toLowerCase());
+    const conceptExists = term => {
+      const termWords = term.toLowerCase().split(/\s+/)
+        .map(normalizeWord)
+        .filter(word => word && !ignoredConceptWords.has(word));
+      return termWords.some(termWord => {
+        const family = conceptFamily(termWord);
+        return answerWords.some(answerWord => family.includes(answerWord) || normalizeWord(answerWord) === termWord);
+      });
+    };
+    const pointEvidence = point => {
+      const terms = point.terms || [];
+      if (terms.some(term => phraseExists(term))) return 1;
+      if (terms.some(term => conceptExists(term))) return 0.75;
+      if (conceptExists(point.label || '')) return 0.5;
+      return 0;
+    };
+    const pointScores = expectedPoints.map(point => ({ point: point, evidence: pointEvidence(point) }));
+    const matchedPoints = pointScores.filter(item => item.evidence >= 0.5).map(item => item.point);
+    const keyPointCoverage = expectedPoints.length
+      ? pointScores.reduce((total, item) => total + item.evidence, 0) / expectedPoints.length
+      : 0;
+    const questionWords = (question?.question || '').split(/\s+/)
+      .map(normalizeWord)
+      .filter(word => word.length > 3 && !['what', 'when', 'where', 'which', 'your', 'this', 'that', 'with', 'from', 'into', 'about', 'does', 'describe', 'explain', 'tell'].includes(word));
+    const questionConceptMatches = questionWords.filter(questionWord => conceptExists(questionWord)).length;
+    const questionRelevance = questionWords.length ? Math.min(questionConceptMatches / Math.min(questionWords.length, 8), 1) : 0;
     const wordCount = answer ? answer.split(/\s+/).length : 0;
     const sentenceCount = answer ? answer.split(/[.!?]+/).filter(Boolean).length : 0;
     const completeness = Math.min(wordCount / 35, 1);
     const communication = wordCount >= 12 && sentenceCount >= 2 ? 1 : Math.min(wordCount / 24, 1);
     const behavioralSignals = question?.behavioralSignals || [];
-    const behavioralMatches = behavioralSignals.filter(signal =>
-      signal.terms.some(term => answer.includes(term.toLowerCase()))
-    );
+    const behavioralMatches = behavioralSignals.filter(signal => signal.terms.some(term => phraseExists(term) || conceptExists(term)));
     const behavioralQuality = behavioralSignals.length
       ? behavioralMatches.length / behavioralSignals.length
       : 1;
     const correctness = keyPointCoverage;
-    const relevance = matchedPoints.length > 0 ? Math.min(keyPointCoverage + 0.15, 1) : 0;
+    const relevance = matchedPoints.length > 0 ? Math.min((keyPointCoverage * 0.7) + (questionRelevance * 0.3), 1) : 0;
     const missingPoints = expectedPoints.filter(point => !matchedPoints.includes(point));
     const feedback = matchedPoints.length === expectedPoints.length
       ? 'The response addressed the expected concepts and provided relevant evidence.'
