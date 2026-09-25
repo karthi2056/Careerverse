@@ -1,3 +1,1 @@
-"# careerverse" 
-"# designthinking22" 
-"# Careerverse" 
+# Careerverse
