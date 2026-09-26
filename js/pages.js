@@ -301,8 +301,19 @@ function initProfileSetupForm() {
         }
       });
 
+      // Include skills typed in the fields without requiring Enter first.
+      const pendingTechSkill = document.getElementById('setup-tech-input')?.value?.trim().replace(',', '');
+      const pendingSoftSkill = document.getElementById('setup-soft-input')?.value?.trim().replace(',', '');
+      if (pendingTechSkill && !setupTechSkills.includes(pendingTechSkill)) {
+        setupTechSkills.push(pendingTechSkill);
+      }
+      if (pendingSoftSkill && !setupSoftSkills.includes(pendingSoftSkill)) {
+        setupSoftSkills.push(pendingSoftSkill);
+      }
+
       // Preserve existing skillAssessments if any
       const currentAssessments = window.AppState.profile?.skillAssessments || {};
+      const currentAssessmentHistory = window.AppState.profile?.skillAssessmentHistory || [];
 
       window.AppState.profile = {
         academic: { college, degree, department, year, cgpa },
@@ -314,7 +325,8 @@ function initProfileSetupForm() {
         preferences: { industry, workType },
         targetCareer,
         experience,
-        skillAssessments: currentAssessments
+        skillAssessments: currentAssessments,
+        skillAssessmentHistory: currentAssessmentHistory
       };
 
       window.saveState();
@@ -424,13 +436,29 @@ function setupTagField(inputId, containerId, arr) {
     if (e.key === 'Enter' || e.key === ',') {
       e.preventDefault();
       const val = input.value.trim().replace(',', '');
-      if (val && !arr.includes(val)) {
-        arr.push(val);
+      const currentArr = inputId === 'setup-tech-input'
+        ? setupTechSkills
+        : inputId === 'setup-soft-input'
+          ? setupSoftSkills
+          : setupInterests;
+      if (val && !currentArr.includes(val)) {
+        currentArr.push(val);
         input.value = '';
-        renderTagPills(containerId, arr, inputId);
+        renderTagPills(containerId, currentArr, inputId);
+        persistProfileSkills();
       }
     }
   });
+}
+
+function persistProfileSkills() {
+  if (!window.AppState?.user) return;
+
+  const profile = window.AppState.profile || {};
+  profile.technicalSkills = [...setupTechSkills];
+  profile.softSkills = [...setupSoftSkills];
+  window.AppState.profile = profile;
+  window.saveState();
 }
 
 function renderTagPills(containerId, arr, inputId) {
@@ -592,6 +620,9 @@ function renderDigitalTwin() {
   const completeness = window.AnalyticsEngine.calculateProfileCompleteness(p);
   const authenticity = window.AnalyticsEngine.calculateSkillAuthenticity(p);
   const validatedMap = p.skillAssessments || {};
+  const assessmentHistory = Array.isArray(p.skillAssessmentHistory) && p.skillAssessmentHistory.length > 0
+    ? [...p.skillAssessmentHistory].reverse()
+    : Object.keys(validatedMap).map(skill => ({ ...validatedMap[skill], skillName: skill })).reverse();
 
   const initials = (window.AppState.user ? window.AppState.user.fullName || 'User' : 'User')
     .split(' ')
@@ -680,7 +711,7 @@ function renderDigitalTwin() {
         <div class="glass-card">
           <h4 style="font-size:1rem; margin-bottom:0.75rem;">Soft Skills</h4>
           <div style="display:flex; flex-wrap:wrap; gap:6px;">
-            ${(p.softSkills || []).map(s => `<span class="badge badge-blue">${s}</span>`).join('')}
+            ${(p.softSkills || []).map(s => `<span class="badge-claimed"><i data-lucide="help-circle"></i> ${s} (Self-Reported)</span>`).join('')}
           </div>
         </div>
 
@@ -836,7 +867,9 @@ function renderSkillAssessmentPage() {
   const container = document.getElementById('skill-assessment-main-container');
   if (!container) return;
 
-  const claimedSkills = (p.technicalSkills && p.technicalSkills.length > 0) ? p.technicalSkills : (p.skills || []);
+  const claimedSkills = p
+    ? ((p.technicalSkills && p.technicalSkills.length > 0) ? p.technicalSkills : (p.skills || []))
+    : [];
 
   if (!p || claimedSkills.length === 0) {
     container.innerHTML = `
@@ -853,6 +886,9 @@ function renderSkillAssessmentPage() {
 
   const authenticity = window.AnalyticsEngine.calculateSkillAuthenticity(p);
   const validatedMap = p.skillAssessments || {};
+  const assessmentHistory = Array.isArray(p.skillAssessmentHistory) && p.skillAssessmentHistory.length > 0
+    ? [...p.skillAssessmentHistory].reverse()
+    : Object.keys(validatedMap).map(skill => ({ ...validatedMap[skill], skillName: skill })).reverse();
 
   // If a test runner is active, render the active question runner view
   if (activeAssessmentState) {
@@ -907,7 +943,7 @@ function renderSkillAssessmentPage() {
     <!-- Assessment History View -->
     <div class="glass-card">
       <h4 style="font-size:1rem; margin-bottom:1rem;"><i data-lucide="history"></i> Assessment History</h4>
-      ${Object.keys(validatedMap).length > 0 ? `
+      ${assessmentHistory.length > 0 ? `
         <table style="width:100%; border-collapse:collapse; font-size:0.88rem; text-align:left;">
           <thead>
             <tr style="border-bottom:1px solid var(--border-light); color:var(--text-muted);">
@@ -919,15 +955,14 @@ function renderSkillAssessmentPage() {
             </tr>
           </thead>
           <tbody>
-            ${Object.keys(validatedMap).map(k => {
-              const res = validatedMap[k];
+            ${assessmentHistory.map(res => {
               return `
                 <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
-                  <td style="padding:10px; font-weight:600;">${k}</td>
+                  <td style="padding:10px; font-weight:600;">${res.skillName}</td>
                   <td style="padding:10px; color:${res.scorePct >= 60 ? 'var(--accent-green)' : 'var(--accent-red)'}; font-weight:700;">${res.scorePct}%</td>
                   <td style="padding:10px;"><span class="badge badge-purple">${res.assessedLevel}</span></td>
                   <td style="padding:10px; color:var(--text-muted);">${res.date || 'Recent'}</td>
-                  <td style="padding:10px;"><button class="btn btn-secondary btn-sm" onclick="startAssessmentForSkill('${k}')">Retake</button></td>
+                  <td style="padding:10px;"><button class="btn btn-secondary btn-sm" onclick="startAssessmentForSkill('${res.skillName}')">Retake</button></td>
                 </tr>
               `;
             }).join('')}
@@ -939,19 +974,63 @@ function renderSkillAssessmentPage() {
 }
 
 window.startAssessmentForSkill = function(skillName) {
-  const questions = window.AnalyticsEngine.generateSkillQuestions(skillName);
   activeAssessmentState = {
     skillName: skillName,
-    questions: questions,
+    questions: [],
     currentIndex: 0,
-    userAnswers: new Array(questions.length).fill(null),
-    result: null
+    userAnswers: [],
+    result: null,
+    loading: true,
+    error: null
   };
   renderSkillAssessmentPage();
+
+  setTimeout(() => {
+    try {
+      const questions = window.AnalyticsEngine.generateSkillQuestions(skillName);
+      if (!Array.isArray(questions) || questions.length < 10) {
+        throw new Error('At least 10 assessment questions are required.');
+      }
+      activeAssessmentState.questions = questions;
+      activeAssessmentState.userAnswers = new Array(questions.length).fill(null);
+      activeAssessmentState.loading = false;
+      renderSkillAssessmentPage();
+    } catch (error) {
+      activeAssessmentState.loading = false;
+      activeAssessmentState.error = error.message || 'Unable to generate questions.';
+      renderSkillAssessmentPage();
+    }
+  }, 0);
 };
 
 function renderQuizRunner(container) {
   const st = activeAssessmentState;
+
+  if (st.loading) {
+    container.innerHTML = `
+      <div class="glass-card" style="max-width:760px; margin:0 auto; text-align:center;">
+        <i data-lucide="loader-circle" class="spin" style="font-size:2.5rem; color:var(--accent-purple-light);"></i>
+        <h3 style="margin-top:1rem;">Generating your assessment...</h3>
+        <p style="color:var(--text-muted);">Preparing Easy, Medium, and Hard questions for ${st.skillName}.</p>
+      </div>
+    `;
+    if (window.lucide) lucide.createIcons();
+    return;
+  }
+
+  if (st.error) {
+    container.innerHTML = `
+      <div class="glass-card" style="max-width:760px; margin:0 auto; text-align:center;">
+        <i data-lucide="alert-triangle" style="font-size:2.5rem; color:var(--accent-red);"></i>
+        <h3 style="margin-top:1rem;">Assessment unavailable</h3>
+        <p style="color:var(--text-muted);">${st.error}</p>
+        <button class="btn btn-secondary" onclick="activeAssessmentState = null; renderSkillAssessmentPage();">Return to Skills</button>
+      </div>
+    `;
+    if (window.lucide) lucide.createIcons();
+    return;
+  }
+
   const q = st.questions[st.currentIndex];
   const progressPct = Math.round(((st.currentIndex + 1) / st.questions.length) * 100);
 
@@ -1047,19 +1126,33 @@ window.nextQuizQuestion = function() {
     st.currentIndex++;
     renderSkillAssessmentPage();
   } else {
-    // Final question submitted — evaluate results
-    const evalRes = window.AnalyticsEngine.evaluateSkillAssessment(st.skillName, st.userAnswers, st.questions);
-    st.result = evalRes;
-
-    // Persist assessment result to student profile
-    if (!window.AppState.profile.skillAssessments) {
-      window.AppState.profile.skillAssessments = {};
-    }
-    window.AppState.profile.skillAssessments[st.skillName] = evalRes;
-    window.saveState();
-
-    window.showToast(`Assessment submitted! Score: ${evalRes.scorePct}% (${evalRes.assessedLevel})`, 'award');
+    st.loading = true;
     renderSkillAssessmentPage();
+
+    setTimeout(() => {
+      try {
+        const evalRes = window.AnalyticsEngine.evaluateSkillAssessment(st.skillName, st.userAnswers, st.questions);
+        st.result = evalRes;
+
+        if (!window.AppState.profile.skillAssessments) {
+          window.AppState.profile.skillAssessments = {};
+        }
+        if (!Array.isArray(window.AppState.profile.skillAssessmentHistory)) {
+          window.AppState.profile.skillAssessmentHistory = [];
+        }
+        window.AppState.profile.skillAssessments[st.skillName] = evalRes;
+        window.AppState.profile.skillAssessmentHistory.push(evalRes);
+        window.saveState();
+
+        st.loading = false;
+        window.showToast(`Assessment submitted! Score: ${evalRes.scorePct}% (${evalRes.assessedLevel})`, 'award');
+        renderSkillAssessmentPage();
+      } catch (error) {
+        st.loading = false;
+        st.error = error.message || 'Unable to evaluate this assessment.';
+        renderSkillAssessmentPage();
+      }
+    }, 0);
   }
 };
 
