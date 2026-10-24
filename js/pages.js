@@ -867,16 +867,28 @@ function renderSkillAssessmentPage() {
   const container = document.getElementById('skill-assessment-main-container');
   if (!container) return;
 
-  const claimedSkills = p
+  const technicalSkills = p
     ? ((p.technicalSkills && p.technicalSkills.length > 0) ? p.technicalSkills : (p.skills || []))
     : [];
+  const softSkills = p?.softSkills || [];
+  const claimedSkills = [
+    ...technicalSkills.map(name => ({ name, type: 'technical' })),
+    ...softSkills.map(name => ({ name, type: 'soft' }))
+  ];
+
+  container.onclick = event => {
+    const button = event.target.closest('[data-assessment-skill]');
+    if (button && container.contains(button)) {
+      window.startAssessmentForSkill(button.dataset.assessmentSkill, button.dataset.assessmentType);
+    }
+  };
 
   if (!p || claimedSkills.length === 0) {
     container.innerHTML = `
       <div class="empty-state-box">
         <i data-lucide="check-square" class="empty-state-icon"></i>
         <h3 class="empty-state-title">No Claimed Skills Found</h3>
-        <p class="empty-state-desc">Add technical skills to your Student Profile setup to take AI skill verification tests.</p>
+        <p class="empty-state-desc">Add technical or soft skills to your Student Profile setup to take skill assessments.</p>
         <a href="#profile-setup" class="btn btn-primary"><i data-lucide="user-cog"></i> Add Skills to Profile</a>
       </div>
     `;
@@ -889,8 +901,19 @@ function renderSkillAssessmentPage() {
   const assessmentHistory = Array.isArray(p.skillAssessmentHistory) && p.skillAssessmentHistory.length > 0
     ? [...p.skillAssessmentHistory].reverse()
     : Object.keys(validatedMap).map(skill => ({ ...validatedMap[skill], skillName: skill })).reverse();
+  const getAssessment = skill => validatedMap[skill.type === 'soft' ? `soft:${skill.name}` : skill.name]
+    || Object.values(validatedMap).find(item => item.skillName?.toLowerCase() === skill.name.toLowerCase() && (item.skillType || 'technical') === skill.type);
+  const completedSkillAssessments = claimedSkills.map(skill => getAssessment(skill)).filter(item => item && typeof item.scorePct === 'number');
+  const overallAssessmentScore = completedSkillAssessments.length
+    ? Math.round(completedSkillAssessments.reduce((total, item) => total + item.scorePct, 0) / completedSkillAssessments.length)
+    : null;
 
   // If a test runner is active, render the active question runner view
+  if (activeAssessmentState) {
+    if (activeAssessmentState.accountEmail !== window.AppState.user?.email?.toLowerCase()) {
+      activeAssessmentState = null;
+    }
+  }
   if (activeAssessmentState) {
     renderQuizRunner(container);
     return;
@@ -904,6 +927,7 @@ function renderSkillAssessmentPage() {
         <div>
           <h3 style="font-size:1.2rem; margin-bottom:4px;"><i data-lucide="shield-check" style="color:var(--accent-green);"></i> Skill Authenticity Score: <span style="color:var(--accent-green); font-weight:800;">${authenticity}%</span></h3>
           <p style="font-size:0.88rem; color:var(--text-muted);">Verify your claimed skills through AI tests to convert gray badges to green checkmark badges on your Digital Career Twin.</p>
+          <p style="font-size:0.88rem; color:var(--text-muted); margin-top:6px;">Overall assessment score: <strong style="color:var(--accent-green);">${overallAssessmentScore === null ? 'Not assessed' : `${overallAssessmentScore}%`}</strong> across ${completedSkillAssessments.length} of ${claimedSkills.length} claimed skills.</p>
         </div>
         <div style="width:75px; height:75px; border-radius:50%; background:rgba(34,197,94,0.15); border:2px solid var(--accent-green); display:flex; align-items:center; justify-content:center; font-size:1.4rem; font-weight:800; color:var(--accent-green);">
           ${authenticity}%
@@ -912,16 +936,17 @@ function renderSkillAssessmentPage() {
     </div>
 
     <!-- Claimed Skill Cards Grid -->
-    <h3 style="font-size:1.1rem; margin-bottom:1rem; color:var(--accent-purple-light);">Select a Skill to Assess (10 Questions: Easy, Medium, Hard)</h3>
+    <h3 style="font-size:1.1rem; margin-bottom:1rem; color:var(--accent-purple-light);">Technical & Soft Skills (Claimed)</h3>
     <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:1.25rem; margin-bottom:2rem;">
       ${claimedSkills.map(skill => {
-        const assessment = validatedMap[skill] || validatedMap[Object.keys(validatedMap).find(k => k.toLowerCase() === skill.toLowerCase())];
+        const assessment = getAssessment(skill);
         const isValidated = assessment && typeof assessment.scorePct === 'number';
         return `
           <div class="glass-card" style="display:flex; flex-direction:column; justify-content:space-between;">
             <div>
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                <h4 style="font-size:1.1rem; margin:0;">${skill}</h4>
+                <h4 style="font-size:1.1rem; margin:0;">${escapeAssessmentHtml(skill.name)}</h4>
+                <span class="badge-claimed">${skill.type === 'soft' ? 'Soft Skill' : 'Technical Skill'}</span>
                 ${isValidated 
                   ? `<span class="badge-validated"><i data-lucide="check-circle"></i> AI-Validated</span>`
                   : `<span class="badge-claimed">Self-Reported</span>`}
@@ -931,7 +956,7 @@ function renderSkillAssessmentPage() {
               </p>
             </div>
             <div style="margin-top:1.25rem;">
-              <button class="btn ${isValidated ? 'btn-secondary' : 'btn-primary'} btn-block" onclick="startAssessmentForSkill('${skill}')">
+              <button class="btn ${isValidated ? 'btn-secondary' : 'btn-primary'} btn-block" data-assessment-skill="${escapeAssessmentAttribute(skill.name)}" data-assessment-type="${skill.type}">
                 <i data-lucide="play-circle"></i> ${assessment ? 'Retake Test' : 'Start Assessment'}
               </button>
             </div>
@@ -958,11 +983,11 @@ function renderSkillAssessmentPage() {
             ${assessmentHistory.map(res => {
               return `
                 <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
-                  <td style="padding:10px; font-weight:600;">${res.skillName}</td>
+                  <td style="padding:10px; font-weight:600;">${escapeAssessmentHtml(res.skillName)} <span class="badge-claimed">${res.skillType === 'soft' ? 'Soft' : 'Technical'}</span></td>
                   <td style="padding:10px; color:${res.scorePct >= 60 ? 'var(--accent-green)' : 'var(--accent-red)'}; font-weight:700;">${res.scorePct}%</td>
                   <td style="padding:10px;"><span class="badge badge-purple">${res.assessedLevel}</span></td>
                   <td style="padding:10px; color:var(--text-muted);">${res.date || 'Recent'}</td>
-                  <td style="padding:10px;"><button class="btn btn-secondary btn-sm" onclick="startAssessmentForSkill('${res.skillName}')">Retake</button></td>
+                  <td style="padding:10px;"><button class="btn btn-secondary btn-sm" data-assessment-skill="${escapeAssessmentAttribute(res.skillName)}" data-assessment-type="${res.skillType || 'technical'}">Retake</button></td>
                 </tr>
               `;
             }).join('')}
@@ -973,9 +998,29 @@ function renderSkillAssessmentPage() {
   `;
 }
 
-window.startAssessmentForSkill = function(skillName) {
+function escapeAssessmentAttribute(value) {
+  return String(value).replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+}
+
+function escapeAssessmentHtml(value) {
+  return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+}
+
+window.startAssessmentForSkill = function(skillName, skillType = 'technical') {
+  const email = window.AppState.user?.email?.toLowerCase();
+  const profile = window.AppState.profile;
+  const claimedSkills = skillType === 'soft'
+    ? (profile?.softSkills || [])
+    : ((profile?.technicalSkills && profile.technicalSkills.length > 0) ? profile.technicalSkills : (profile?.skills || []));
+  if (!email || !profile || !claimedSkills.some(skill => skill.toLowerCase() === skillName.toLowerCase())) {
+    window.showToast('This skill is not claimed in the current profile.', 'alert-circle');
+    return;
+  }
+
   activeAssessmentState = {
     skillName: skillName,
+    skillType,
+    accountEmail: email,
     questions: [],
     currentIndex: 0,
     userAnswers: [],
@@ -987,7 +1032,7 @@ window.startAssessmentForSkill = function(skillName) {
 
   setTimeout(() => {
     try {
-      const questions = window.AnalyticsEngine.generateSkillQuestions(skillName);
+      const questions = window.AnalyticsEngine.generateSkillQuestions(skillName, skillType);
       if (!Array.isArray(questions) || questions.length < 10) {
         throw new Error('At least 10 assessment questions are required.');
       }
@@ -1040,9 +1085,15 @@ function renderQuizRunner(container) {
     container.innerHTML = `
       <div class="glass-card" style="max-width:700px; margin:0 auto; text-align:center;">
         <i data-lucide="award" style="font-size:3.5rem; color:var(--accent-purple-light); margin-bottom:1rem;"></i>
-        <h2 class="page-title">Assessment Complete: ${res.skillName}</h2>
+        <h2 class="page-title">Assessment Complete: ${escapeAssessmentHtml(res.skillName)}</h2>
         <div class="gradient-text" style="font-size:4rem; font-weight:800; margin:0.5rem 0;">${res.scorePct}%</div>
         <p style="font-size:1.1rem; margin-bottom:1.5rem;">Assessed Skill Level: <span class="badge badge-green" style="font-size:1rem;">${res.assessedLevel}</span></p>
+
+        <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:0.75rem; margin-bottom:1.5rem;">
+          <div class="badge-claimed">Correctness: ${res.dimensionScores.correctness}%</div>
+          <div class="badge-claimed">Relevance: ${res.dimensionScores.relevance}%</div>
+          <div class="badge-claimed">Practical understanding: ${res.dimensionScores.practicalUnderstanding}%</div>
+        </div>
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; text-align:left; margin-bottom:1.5rem;">
           <div style="background:rgba(34,197,94,0.1); border:1px solid rgba(34,197,94,0.3); padding:12px; border-radius:8px;">
@@ -1074,7 +1125,7 @@ function renderQuizRunner(container) {
     <div class="glass-card" style="max-width:760px; margin:0 auto;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
         <div>
-          <span style="font-weight:700; color:var(--accent-purple-light); font-size:1.1rem;">${st.skillName} Skill Assessment</span>
+          <span style="font-weight:700; color:var(--accent-purple-light); font-size:1.1rem;">${escapeAssessmentHtml(st.skillName)} Skill Assessment</span>
           <span style="color:var(--text-muted); font-size:0.85rem; margin-left:10px;">Question ${st.currentIndex + 1} of ${st.questions.length}</span>
         </div>
         <span class="badge ${q.difficulty === 'Easy' ? 'badge-green' : (q.difficulty === 'Medium' ? 'badge-blue' : 'badge-red')}">${q.difficulty} (${q.type})</span>
@@ -1086,7 +1137,7 @@ function renderQuizRunner(container) {
       </div>
 
       <!-- Question Text -->
-      <h3 style="font-size:1.15rem; margin-bottom:1.25rem; line-height:1.4;">${q.text}</h3>
+      <h3 style="font-size:1.15rem; margin-bottom:1.25rem; line-height:1.4;">${escapeAssessmentHtml(q.text)}</h3>
 
       <!-- Option Cards -->
       <div style="margin-bottom:1.5rem;">
@@ -1095,7 +1146,7 @@ function renderQuizRunner(container) {
             <div style="width:24px; height:24px; border-radius:50%; border:2px solid var(--border-glow); display:flex; align-items:center; justify-content:center; font-weight:600; font-size:0.8rem; background:${st.userAnswers[st.currentIndex] === idx ? 'var(--accent-purple)' : 'transparent'}; color:#fff;">
               ${String.fromCharCode(65 + idx)}
             </div>
-            <span>${opt}</span>
+            <span>${escapeAssessmentHtml(opt)}</span>
           </div>
         `).join('')}
       </div>
@@ -1131,7 +1182,16 @@ window.nextQuizQuestion = function() {
 
     setTimeout(() => {
       try {
+        const currentEmail = window.AppState.user?.email?.toLowerCase();
+        const currentSkills = st.skillType === 'soft'
+          ? (window.AppState.profile?.softSkills || [])
+          : ((window.AppState.profile?.technicalSkills && window.AppState.profile.technicalSkills.length > 0) ? window.AppState.profile.technicalSkills : (window.AppState.profile?.skills || []));
+        if (!currentEmail || currentEmail !== st.accountEmail || !window.AppState.profile || !currentSkills.some(skill => skill.toLowerCase() === st.skillName.toLowerCase())) {
+          throw new Error('The signed-in account or claimed skills changed. Start a new assessment from the current profile.');
+        }
+
         const evalRes = window.AnalyticsEngine.evaluateSkillAssessment(st.skillName, st.userAnswers, st.questions);
+        evalRes.skillType = st.skillType;
         st.result = evalRes;
 
         if (!window.AppState.profile.skillAssessments) {
@@ -1140,7 +1200,8 @@ window.nextQuizQuestion = function() {
         if (!Array.isArray(window.AppState.profile.skillAssessmentHistory)) {
           window.AppState.profile.skillAssessmentHistory = [];
         }
-        window.AppState.profile.skillAssessments[st.skillName] = evalRes;
+        const assessmentKey = st.skillType === 'soft' ? `soft:${st.skillName}` : st.skillName;
+        window.AppState.profile.skillAssessments[assessmentKey] = evalRes;
         window.AppState.profile.skillAssessmentHistory.push(evalRes);
         window.saveState();
 
@@ -1827,9 +1888,140 @@ let mockInterviewAttentionTracking = null;
 let mockInterviewCameraMonitor = null;
 let mockInterviewReadyCamera = null;
 let mockInterviewCameraRequestPending = false;
+let mockInterviewCameraRequestId = 0;
 let mockInterviewCameraError = null;
+let mockInterviewProctorModels = null;
+let mockInterviewProctorModelsLoading = false;
+let mockInterviewProctorModelError = null;
+let mockInterviewProctoringConsent = false;
+let mockInterviewProctorThresholds = window.MockInterviewProctor?.getThresholds?.() || {
+  faceMissingWarningMs: 3500,
+  prolongedGazeWarningMs: 7000,
+  phoneConfidenceThreshold: 0.62
+};
+let mockInterviewRecordingReady = false;
+let mockInterviewReadySessionId = null;
+let mockInterviewRecordingStatus = 'Camera and recording not enabled.';
 let mockInterviewTimer = null;
 const MOCK_INTERVIEW_DURATION_MS = 30 * 60 * 1000;
+
+function createMockInterviewSessionId() {
+  return window.crypto?.randomUUID?.() || `interview-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function updateMockInterviewRecordingStatus(sessionId, update) {
+  mockInterviewRecordingStatus = update.message;
+  if (update.status === 'recording') mockInterviewRecordingReady = true;
+  if (update.status === 'error') mockInterviewRecordingReady = false;
+  ['mock-interview-recording-status', 'mock-interview-camera-setup-status'].forEach(id => {
+    const status = document.getElementById(id);
+    if (status) status.textContent = update.message;
+  });
+  if (update.status === 'saved' || update.status === 'error') {
+    renderMockInterviewRecordingSummary(sessionId);
+    renderMockInterviewSavedRecordings();
+  }
+}
+
+async function renderMockInterviewRecordingSummary(sessionId) {
+  const container = document.getElementById('mock-interview-recording-summary');
+  if (!container) return;
+  try {
+    const recording = await window.MockInterviewRecordings.get(sessionId);
+    if (!recording) {
+      container.textContent = 'No saved recording is available for this interview.';
+      return;
+    }
+    if (recording.status === 'recording') {
+      container.textContent = 'Finalizing the locally stored recording...';
+      return;
+    }
+    if (recording.status !== 'saved' || !recording.chunkCount) {
+      container.textContent = 'The video could not be saved. Check browser storage settings before recording another interview.';
+      return;
+    }
+    container.replaceChildren();
+    const message = document.createElement('p');
+    message.textContent = `Video saved in this browser (${formatMockInterviewRecordingSize(recording.sizeBytes)}). It stays here until you download or clear it.`;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'btn btn-secondary btn-sm';
+    button.textContent = 'Download interview video';
+    button.addEventListener('click', () => window.downloadMockInterviewRecording(sessionId));
+    container.append(message, button);
+  } catch (error) {
+    container.textContent = `Could not read the saved video: ${error.message}`;
+  }
+}
+
+function formatMockInterviewRecordingSize(sizeBytes) {
+  if (sizeBytes < 1024 * 1024) return `${Math.max(1, Math.round(sizeBytes / 1024))} KB`;
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+async function renderMockInterviewSavedRecordings() {
+  const container = document.getElementById('mock-interview-saved-recordings');
+  if (!container) return;
+  container.textContent = 'Loading saved videos...';
+  try {
+    const recordings = (await window.MockInterviewRecordings.list(window.AppState.user?.email?.toLowerCase()))
+      .filter(recording => recording.status === 'saved' && recording.chunkCount);
+    if (!recordings.length) {
+      container.textContent = 'No saved interview videos.';
+      return;
+    }
+    container.replaceChildren();
+    recordings.forEach(recording => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 0; border-bottom:1px solid var(--border-light);';
+      const label = document.createElement('span');
+      label.textContent = `${new Date(recording.startedAt).toLocaleString()} · ${formatMockInterviewRecordingSize(recording.sizeBytes)}`;
+      const actions = document.createElement('span');
+      const downloadButton = document.createElement('button');
+      downloadButton.type = 'button';
+      downloadButton.className = 'btn btn-secondary btn-sm';
+      downloadButton.textContent = 'Download';
+      downloadButton.addEventListener('click', () => window.downloadMockInterviewRecording(recording.sessionId));
+      const deleteButton = document.createElement('button');
+      deleteButton.type = 'button';
+      deleteButton.className = 'btn btn-secondary btn-sm';
+      deleteButton.style.marginLeft = '6px';
+      deleteButton.textContent = 'Delete';
+      deleteButton.addEventListener('click', () => window.deleteMockInterviewRecording(recording.sessionId));
+      actions.append(downloadButton, deleteButton);
+      row.append(label, actions);
+      container.appendChild(row);
+    });
+  } catch (error) {
+    container.textContent = `Saved video list unavailable: ${error.message}`;
+  }
+}
+
+window.downloadMockInterviewRecording = async function(sessionId) {
+  try {
+    await window.MockInterviewRecordings.download(sessionId, window.AppState.user?.email?.toLowerCase());
+  } catch (error) {
+    window.showToast(error.message || 'Could not download the interview video.', 'alert-circle');
+  }
+};
+
+window.deleteMockInterviewRecording = async function(sessionId) {
+  if (!window.confirm('Delete this saved interview video from this browser? This cannot be undone.')) return;
+  try {
+    await window.MockInterviewRecordings.delete(sessionId, window.AppState.user?.email?.toLowerCase());
+    window.showToast('Interview video deleted from this browser.', 'check');
+    renderMockInterviewSavedRecordings();
+  } catch (error) {
+    window.showToast(`Could not delete the interview video: ${error.message}`, 'alert-circle');
+  }
+};
+
+window.configureMockInterviewProctorThreshold = function(name, value) {
+  mockInterviewProctorThresholds = window.MockInterviewProctor.configureThresholds({
+    ...window.MockInterviewProctor.getThresholds(),
+    [name]: Number(value)
+  });
+};
 
 function stopMockInterviewVoice() {
   if (mockInterviewState?.voiceRecognition) {
@@ -1883,6 +2075,11 @@ function endMockInterviewByTimeout() {
   state.timeoutReached = true;
   state.paused = false;
   state.pauseReason = null;
+  if (state.proctoring) {
+    state.proctoring.status.camera = 'Stopped';
+    state.proctoring.status.integrity = state.proctoring.warningCount ? 'Warnings for review' : 'Monitoring ended';
+  }
+  finalizeMockInterviewProctoring(state, 'timed_out');
   stopMockInterviewTimer();
   stopMockInterviewAttentionTracking();
   stopMockInterviewVoice();
@@ -2034,6 +2231,16 @@ function stopMockInterviewAttentionTracking() {
 
 function stopMockInterviewCamera() {
   if (mockInterviewCameraMonitor?.timer) clearTimeout(mockInterviewCameraMonitor.timer);
+  if (window.MockInterviewProctor) window.MockInterviewProctor.stop();
+  if (mockInterviewState) mockInterviewState.proctorMonitorActive = false;
+  const recordingSessionId = mockInterviewState?.recordingSessionId || mockInterviewReadySessionId;
+  if (recordingSessionId && window.MockInterviewRecordings) {
+    window.MockInterviewRecordings.stop(recordingSessionId).catch(error => {
+      mockInterviewRecordingStatus = `Could not finalize video recording: ${error.message}`;
+      window.showToast(mockInterviewRecordingStatus, 'alert-circle');
+    });
+  }
+  mockInterviewRecordingReady = false;
   if (mockInterviewState?.cameraStream) {
     mockInterviewState.cameraStream.getTracks().forEach(track => track.stop());
     mockInterviewState.cameraStream = null;
@@ -2055,6 +2262,18 @@ function handleMockInterviewCameraLost() {
   }
   if (state.report || state.terminated || state.cameraError) return;
 
+  if (state.proctoringEnabled && window.MockInterviewProctor) {
+    window.MockInterviewProctor.cameraUnavailable('Camera feed stopped or was disconnected. The interview is paused until camera access is restored.');
+    window.MockInterviewProctor.stop();
+    state.proctorMonitorActive = false;
+  }
+  if (state.recordingSessionId && window.MockInterviewRecordings) {
+    window.MockInterviewRecordings.stop(state.recordingSessionId).catch(error => {
+      mockInterviewRecordingStatus = `Could not finalize video recording: ${error.message}`;
+      window.showToast(mockInterviewRecordingStatus, 'alert-circle');
+    });
+  }
+  mockInterviewRecordingReady = false;
   state.cameraStream = null;
   state.cameraError = 'Camera is disabled. Enable the camera to resume the interview.';
   state.paused = true;
@@ -2067,12 +2286,63 @@ function handleMockInterviewCameraLost() {
 function attachMockInterviewCameraListeners(stream) {
   stream.getVideoTracks().forEach(track => {
     track.addEventListener('ended', handleMockInterviewCameraLost, { once: true });
-    track.addEventListener('mute', handleMockInterviewCameraLost, { once: true });
+    track.addEventListener('mute', () => {
+      setTimeout(() => {
+        if (track.muted && track.readyState === 'live') handleMockInterviewCameraLost();
+      }, 2000);
+    });
   });
+}
+
+function updateMockInterviewCameraPreview(stream) {
+  const video = document.getElementById('mock-interview-camera-setup-preview');
+  if (!video || !stream) return;
+  if (video.srcObject !== stream) video.srcObject = stream;
+  video.play().catch(() => {
+    const status = document.getElementById('mock-interview-camera-setup-status');
+    if (status) status.textContent = 'Camera is active. If the preview is blank, use the video playback control.';
+  });
+}
+
+function getMockInterviewCameraError(error) {
+  switch (error?.name) {
+    case 'NotAllowedError':
+    case 'PermissionDeniedError':
+      return 'Camera permission was denied or blocked. Allow camera access for this site in your browser and system privacy settings, then try again.';
+    case 'NotFoundError':
+    case 'DevicesNotFoundError':
+      return 'No camera was found. Connect or enable a webcam, then try again.';
+    case 'NotReadableError':
+    case 'TrackStartError':
+      return 'The camera is in use by another app or could not start. Close other apps using it, then try again.';
+    case 'OverconstrainedError':
+      return 'The camera does not support the requested video settings. Try another camera or browser.';
+    case 'SecurityError':
+      return 'The browser blocked camera access. Open this app on localhost or HTTPS and allow camera access.';
+    case 'AbortError':
+      return 'The camera could not be started. Check that it is connected and not being used by another app, then try again.';
+    default:
+      return 'Camera access failed. Check the browser and system camera permissions, then try again.';
+  }
 }
 
 function requestMockInterviewCamera() {
   if (mockInterviewCameraRequestPending) return;
+  if (!mockInterviewProctoringConsent) {
+    mockInterviewCameraError = 'Review and accept the webcam monitoring notice before enabling the camera.';
+    renderMockInterviewPage();
+    return;
+  }
+  if (!window.isSecureContext) {
+    mockInterviewCameraError = 'Camera access requires HTTPS or localhost. Open this app using https:// or http://localhost.';
+    renderMockInterviewPage();
+    return;
+  }
+  if (!window.MediaRecorder || !window.indexedDB || !window.MockInterviewRecordings) {
+    mockInterviewCameraError = 'This browser cannot record and store interview video. Use an up-to-date browser with video recording and local storage support.';
+    renderMockInterviewPage();
+    return;
+  }
   if (!navigator.mediaDevices?.getUserMedia) {
     mockInterviewCameraError = 'Camera access is not supported by this browser.';
     renderMockInterviewPage();
@@ -2080,31 +2350,72 @@ function requestMockInterviewCamera() {
   }
 
   mockInterviewCameraRequestPending = true;
+  const requestId = ++mockInterviewCameraRequestId;
+  const sessionId = createMockInterviewSessionId();
+  mockInterviewReadySessionId = sessionId;
   mockInterviewCameraError = null;
+  mockInterviewRecordingStatus = 'Waiting for camera permission before recording starts.';
   renderMockInterviewPage();
 
-  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false })
-    .then(stream => {
-      if (mockInterviewState?.report || mockInterviewState?.terminated) {
+  navigator.mediaDevices.getUserMedia({
+    video: {
+      facingMode: { ideal: 'user' },
+      width: { ideal: 640 },
+      height: { ideal: 480 }
+    },
+    audio: false
+  })
+    .then(async stream => {
+      if (requestId !== mockInterviewCameraRequestId || !mockInterviewProctoringConsent || mockInterviewState?.report || mockInterviewState?.terminated || (mockInterviewState && !mockInterviewState.proctoringEnabled)) {
         stream.getTracks().forEach(track => track.stop());
         return;
       }
       if (mockInterviewReadyCamera) mockInterviewReadyCamera.getTracks().forEach(track => track.stop());
       mockInterviewReadyCamera = stream;
+      mockInterviewRecordingReady = false;
+      mockInterviewRecordingStatus = 'Camera connected. Initializing local video recording...';
+      renderMockInterviewPage();
+      updateMockInterviewCameraPreview(stream);
+      await window.MockInterviewRecordings.start(
+        sessionId,
+        stream,
+        update => updateMockInterviewRecordingStatus(sessionId, update),
+        window.AppState.user?.email?.toLowerCase()
+      );
+      if (requestId !== mockInterviewCameraRequestId || !mockInterviewProctoringConsent) {
+        await window.MockInterviewRecordings.delete(sessionId, window.AppState.user?.email?.toLowerCase());
+        stream.getTracks().forEach(track => track.stop());
+        if (mockInterviewReadyCamera === stream) mockInterviewReadyCamera = null;
+        mockInterviewReadySessionId = null;
+        return;
+      }
       attachMockInterviewCameraListeners(stream);
       mockInterviewCameraRequestPending = false;
       mockInterviewCameraError = null;
       if (mockInterviewState) {
         mockInterviewState.cameraStream = stream;
+        mockInterviewState.recordingSessionId = sessionId;
         mockInterviewState.cameraError = null;
-        mockInterviewState.paused = false;
-        mockInterviewState.pauseReason = null;
+        mockInterviewState.paused = Boolean(mockInterviewState.proctoringEnabled && !mockInterviewProctorModels);
+        mockInterviewState.pauseReason = mockInterviewState.paused ? 'models' : null;
+        if (mockInterviewState.proctoring) mockInterviewState.proctoring.status.camera = 'Active';
       }
       renderMockInterviewPage();
+      updateMockInterviewCameraPreview(stream);
+      loadMockInterviewProctorModels();
     })
-    .catch(() => {
+    .catch(error => {
+      if (requestId !== mockInterviewCameraRequestId) return;
       mockInterviewCameraRequestPending = false;
-      mockInterviewCameraError = 'Camera access is required. Enable the camera before starting the interview.';
+      mockInterviewCameraError = error.name === 'NotAllowedError' || error.name === 'NotFoundError' || error.name === 'NotReadableError'
+        ? getMockInterviewCameraError(error)
+        : `The video recording could not be started or saved locally: ${error.message || 'check browser storage permissions and available space.'}`;
+      if (mockInterviewReadyCamera) {
+        mockInterviewReadyCamera.getTracks().forEach(track => track.stop());
+        mockInterviewReadyCamera = null;
+      }
+      mockInterviewRecordingReady = false;
+      mockInterviewReadySessionId = null;
       if (mockInterviewState) {
         mockInterviewState.cameraError = mockInterviewCameraError;
         mockInterviewState.paused = true;
@@ -2116,89 +2427,204 @@ function requestMockInterviewCamera() {
 
 window.enableMockInterviewCamera = requestMockInterviewCamera;
 
-function recordRound3CameraViolation(reason = 'Prolonged face movement or attention away from the camera/screen') {
-  const state = mockInterviewState;
-  if (!state || state.report || state.terminated) return;
-
-  const now = Date.now();
-  if (mockInterviewCameraMonitor && now - mockInterviewCameraMonitor.lastViolationAt < 5000) return;
-  if (mockInterviewCameraMonitor) mockInterviewCameraMonitor.lastViolationAt = now;
-  state.round3Violations++;
-  state.cameraViolationEvents.push({ count: state.round3Violations, timestamp: new Date(now).toISOString(), reason: reason });
-
-  if (state.round3Violations > 3) {
-    state.terminated = true;
-    stopMockInterviewAttentionTracking();
-    stopMockInterviewVoice();
-    stopMockInterviewCamera();
-    exitMockInterviewFullscreen();
-    renderMockInterviewPage();
-    window.showToast('Interview terminated after the final camera warning.', 'alert-circle');
-    return;
+window.setMockInterviewProctoringConsent = function(accepted) {
+  mockInterviewProctoringConsent = Boolean(accepted);
+  mockInterviewCameraError = null;
+  if (!mockInterviewProctoringConsent) {
+    mockInterviewCameraRequestId++;
+    mockInterviewCameraRequestPending = false;
+    mockInterviewReadySessionId = null;
   }
+  if (!mockInterviewProctoringConsent && mockInterviewReadyCamera) {
+    if (mockInterviewReadySessionId) {
+      window.MockInterviewRecordings.stop(mockInterviewReadySessionId).catch(error => {
+        window.showToast(`Could not finalize the recording: ${error.message}`, 'alert-circle');
+      });
+    }
+    mockInterviewReadyCamera.getTracks().forEach(track => track.stop());
+    mockInterviewReadyCamera = null;
+    mockInterviewReadySessionId = null;
+    mockInterviewRecordingReady = false;
+    mockInterviewProctorModels = null;
+    mockInterviewProctorModelsLoading = false;
+  }
+  renderMockInterviewPage();
+};
 
-  window.showToast(`Warning ${state.round3Violations}: ${reason}. Please return your attention to the camera or interview screen.`, 'alert-triangle');
+function loadMockInterviewProctorModels() {
+  if (mockInterviewProctorModelsLoading) return;
+  mockInterviewProctorModelsLoading = true;
+  mockInterviewProctorModelError = null;
+  renderMockInterviewPage();
+  window.MockInterviewProctor.loadModels()
+    .then(models => {
+      mockInterviewProctorModels = models;
+      mockInterviewProctorModelsLoading = false;
+      if (mockInterviewState?.pauseReason === 'models') {
+        mockInterviewState.paused = false;
+        mockInterviewState.pauseReason = null;
+      }
+      renderMockInterviewPage();
+    })
+    .catch(error => {
+      mockInterviewProctorModelsLoading = false;
+      mockInterviewProctorModels = null;
+      mockInterviewProctorModelError = error.message || 'Local detection models could not be loaded.';
+      if (mockInterviewState?.proctoringEnabled) {
+        mockInterviewState.paused = true;
+        mockInterviewState.pauseReason = 'models';
+      }
+      renderMockInterviewPage();
+    });
 }
 
-function startMockInterviewFaceMonitor() {
-  const state = mockInterviewState;
-  const video = document.getElementById('mock-interview-camera');
-  if (!state?.cameraStream || !video || !window.FaceDetector) return;
+window.retryMockInterviewProctorModels = function() {
+  if (!mockInterviewProctoringConsent) return;
+  if (!mockInterviewReadyCamera && !mockInterviewState?.cameraStream) {
+    requestMockInterviewCamera();
+    return;
+  }
+  loadMockInterviewProctorModels();
+};
 
-  const detector = new window.FaceDetector({ fastMode: true, maxDetectedFaces: 1 });
-  mockInterviewCameraMonitor = { detector: detector, timer: null, awaySince: null, lastViolationAt: 0, previousFace: null, movementSince: null };
+function escapeMockInterviewText(value) {
+  return String(value || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+}
 
-  const inspectFrame = async function() {
-    if (!mockInterviewState || mockInterviewState.report || mockInterviewState.terminated) return;
-    if (document.hidden || !document.hasFocus() || !document.fullscreenElement) {
-      mockInterviewCameraMonitor.awaySince = null;
-      mockInterviewCameraMonitor.timer = setTimeout(inspectFrame, 1000);
-      return;
-    }
-
-    const videoTrack = mockInterviewState.cameraStream?.getVideoTracks()[0];
-    if (!videoTrack || videoTrack.readyState !== 'live') {
-      recordRound3CameraViolation('Camera turned off or became unavailable');
-      mockInterviewCameraMonitor.timer = setTimeout(inspectFrame, 1000);
-      return;
-    }
-
-    try {
-      const faces = await detector.detect(video);
-      const bounds = faces[0]?.boundingBox;
-      const faceCenterX = bounds ? bounds.x + (bounds.width / 2) : 0;
-      const faceCenterY = bounds ? bounds.y + (bounds.height / 2) : 0;
-      const inView = Boolean(bounds) && faceCenterX >= video.videoWidth * 0.2 && faceCenterX <= video.videoWidth * 0.8 && faceCenterY >= video.videoHeight * 0.15 && faceCenterY <= video.videoHeight * 0.85;
-      const previousFace = mockInterviewCameraMonitor.previousFace;
-      const faceMovement = previousFace && bounds ? Math.hypot(faceCenterX - previousFace.x, faceCenterY - previousFace.y) / Math.max(video.videoWidth, video.videoHeight) : 0;
-      mockInterviewCameraMonitor.previousFace = bounds ? { x: faceCenterX, y: faceCenterY } : null;
-
-      if (inView && faceMovement < 0.12) {
-        mockInterviewCameraMonitor.awaySince = null;
-        mockInterviewCameraMonitor.movementSince = null;
-      } else if (!inView) {
-        mockInterviewCameraMonitor.movementSince = null;
-        if (!mockInterviewCameraMonitor.awaySince) mockInterviewCameraMonitor.awaySince = Date.now();
-        if (Date.now() - mockInterviewCameraMonitor.awaySince >= 5000) {
-          mockInterviewCameraMonitor.awaySince = null;
-          recordRound3CameraViolation('Repeated or prolonged attention away from the camera/screen');
-        }
-      } else {
-        mockInterviewCameraMonitor.awaySince = null;
-        if (!mockInterviewCameraMonitor.movementSince) mockInterviewCameraMonitor.movementSince = Date.now();
-        if (Date.now() - mockInterviewCameraMonitor.movementSince >= 5000) {
-          mockInterviewCameraMonitor.movementSince = null;
-          recordRound3CameraViolation('Repeated or prolonged distracting head/body movement');
-        }
-      }
-    } catch (error) {
-      // Face detection support varies by browser; camera access remains active.
-    }
-
-    if (mockInterviewCameraMonitor) mockInterviewCameraMonitor.timer = setTimeout(inspectFrame, 1000);
+function getMockInterviewProctoringSummary(state, status = 'in_progress') {
+  const proctoring = state?.proctoring;
+  return {
+    sessionId: state.sessionId,
+    status,
+    startedAt: new Date(state.startedAt).toISOString(),
+    endedAt: status === 'in_progress' ? null : new Date().toISOString(),
+    monitoringEnabled: Boolean(state.proctoringEnabled),
+    warningCount: proctoring?.warningCount || 0,
+    integrity: proctoring?.status?.integrity || (state.proctoringEnabled ? 'Monitoring active' : 'Webcam monitoring not enabled'),
+    thresholds: proctoring?.thresholds ? { ...proctoring.thresholds } : null,
+    events: (proctoring?.events || []).map(event => ({ ...event }))
   };
+}
 
-  inspectFrame();
+function persistMockInterviewProctoringDraft(state) {
+  const user = window.AppState.user;
+  if (!state || !user?.email || user.email.toLowerCase() !== state.accountEmail) return;
+  window.AppState.profile.activeMockInterviewProctoring = getMockInterviewProctoringSummary(state);
+  window.saveState();
+}
+
+function finalizeMockInterviewProctoring(state, status) {
+  const user = window.AppState.user;
+  if (!state || !user?.email || user.email.toLowerCase() !== state.accountEmail || !window.AppState.profile) return;
+  const profile = window.AppState.profile;
+  const history = Array.isArray(profile.mockInterviewProctorHistory) ? profile.mockInterviewProctorHistory : [];
+  if (!history.some(session => session.sessionId === state.sessionId)) {
+    const summary = getMockInterviewProctoringSummary(state, status);
+    summary.integrity = state.proctoringEnabled
+      ? (summary.warningCount ? 'Warnings for review' : 'Monitoring ended; no warnings observed')
+      : 'Webcam monitoring not enabled';
+    history.push(summary);
+  }
+  profile.mockInterviewProctorHistory = history.slice(-20);
+  delete profile.activeMockInterviewProctoring;
+  window.AppState.profile = profile;
+  window.saveState();
+}
+
+function renderMockInterviewProctoringPanel(state) {
+  const proctoring = state.proctoring;
+  const status = proctoring?.status || {
+    camera: state.cameraStream ? 'Active' : 'Unavailable',
+    face: state.proctoringEnabled ? 'Checking' : 'Not monitored',
+    gaze: state.proctoringEnabled ? 'Checking' : 'Not monitored',
+    phone: state.proctoringEnabled ? 'Checking' : 'Not monitored',
+    integrity: state.proctoringEnabled ? 'Monitoring active' : 'Webcam monitoring not enabled'
+  };
+  const events = proctoring?.events || [];
+  const badgeColor = status.integrity === 'Monitoring active' ? 'var(--accent-green)' : status.integrity === 'Warnings for review' ? 'var(--accent-pink)' : 'var(--accent-cyan)';
+  return `
+    <section class="glass-card" id="mock-interview-proctor-panel" aria-label="Webcam proctoring status" style="margin-bottom:1rem;">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap;">
+        <div>
+          <strong>Webcam proctoring</strong>
+          <span data-proctor-status="integrity" style="margin-left:8px; color:${badgeColor}; font-weight:700;">${escapeMockInterviewText(status.integrity)}</span>
+        </div>
+        <span>Warnings: <strong data-proctor-warning-count>${proctoring?.warningCount || 0}</strong></span>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:8px; margin-top:10px; font-size:0.82rem;">
+        <div>Camera: <strong data-proctor-status="camera">${escapeMockInterviewText(status.camera)}</strong></div>
+        <div>Face: <strong data-proctor-status="face">${escapeMockInterviewText(status.face)}</strong></div>
+        <div>Gaze estimate: <strong data-proctor-status="gaze">${escapeMockInterviewText(status.gaze)}</strong></div>
+        <div>Phone: <strong data-proctor-status="phone">${escapeMockInterviewText(status.phone)}</strong></div>
+      </div>
+      <p style="font-size:0.75rem; color:var(--text-muted); margin:8px 0 0;">Gaze and object detections are approximate signals, not proof of misconduct. Phone detection only covers objects visible in the camera frame.</p>
+      <details style="margin-top:8px;">
+        <summary style="cursor:pointer; font-size:0.82rem;">Event history (${events.length})</summary>
+        <div data-proctor-events style="max-height:150px; overflow:auto; font-size:0.76rem; margin-top:6px;">
+          ${events.length ? events.slice().reverse().map(event => `<div style="padding:5px 0; border-bottom:1px solid var(--border-light);"><strong>${escapeMockInterviewText(event.level)}</strong> ${new Date(event.timestamp).toLocaleString()} · ${escapeMockInterviewText(event.message)}${event.confidence === null ? '' : ` (${Math.round(event.confidence * 100)}% confidence)`}</div>`).join('') : '<span style="color:var(--text-muted);">No proctoring events recorded.</span>'}
+        </div>
+      </details>
+    </section>`;
+}
+
+function updateMockInterviewProctoringPanel(state) {
+  const panel = document.getElementById('mock-interview-proctor-panel');
+  if (!panel) return;
+  const proctoring = state.proctoring;
+  const status = proctoring.status;
+  ['camera', 'face', 'gaze', 'phone', 'integrity'].forEach(key => {
+    const value = panel.querySelector(`[data-proctor-status="${key}"]`);
+    if (value) value.textContent = status[key];
+  });
+  const integrity = panel.querySelector('[data-proctor-status="integrity"]');
+  if (integrity) {
+    integrity.style.color = status.integrity === 'Monitoring active'
+      ? 'var(--accent-green)'
+      : status.integrity === 'Warnings for review'
+        ? 'var(--accent-pink)'
+        : 'var(--accent-cyan)';
+  }
+  const warningCount = panel.querySelector('[data-proctor-warning-count]');
+  if (warningCount) warningCount.textContent = String(proctoring.warningCount);
+  const eventList = panel.querySelector('[data-proctor-events]');
+  if (eventList && eventList.dataset.eventCount !== String(proctoring.events.length)) {
+    const details = eventList.closest('details');
+    const wasOpen = details?.open;
+    const next = document.createElement('div');
+    next.innerHTML = renderMockInterviewProctoringPanel(state);
+    const updatedEvents = next.querySelector('[data-proctor-events]');
+    if (updatedEvents) {
+      eventList.innerHTML = updatedEvents.innerHTML;
+      eventList.dataset.eventCount = String(proctoring.events.length);
+    }
+    if (details && wasOpen) details.open = true;
+  }
+}
+
+function startMockInterviewProctoring(state, video) {
+  if (!state.proctoringEnabled || !mockInterviewProctorModels || !video) return;
+  let lastPersistedEventCount = state.proctoring?.events?.length || 0;
+  state.proctoring = window.MockInterviewProctor.start({
+    sessionId: state.sessionId,
+    video,
+    faceLandmarker: mockInterviewProctorModels.faceLandmarker,
+    phoneModel: mockInterviewProctorModels.phoneModel,
+    thresholds: mockInterviewProctorThresholds,
+    previousSession: state.proctoring,
+    getQuestionId: () => state.sequence[state.currentIndex]?.id,
+    onUpdate: session => {
+      state.proctoring = session;
+      state.cameraViolationEvents = session.events;
+      updateMockInterviewProctoringPanel(state);
+      if (session.events.length > lastPersistedEventCount) {
+        lastPersistedEventCount = session.events.length;
+        persistMockInterviewProctoringDraft(state);
+        const event = session.events[session.events.length - 1];
+        window.showToast(`${event.level} proctoring signal: ${event.message}`, 'alert-triangle');
+      }
+    }
+  });
+  state.proctorMonitorActive = true;
 }
 
 window.resumeMockInterview = function() {
@@ -2275,19 +2701,8 @@ function startMockInterviewAttentionTracking() {
       tracking.lastViolationAt = now;
       mockInterviewState.violations++;
 
-      if (mockInterviewState.violations > 3) {
-        const cameraStream = mockInterviewState.cameraStream;
-        stopMockInterviewAttentionTracking();
-        stopMockInterviewVoice();
-        mockInterviewState.cameraStream = null;
-        mockInterviewReadyCamera = cameraStream;
-        window.showToast('Interview restarted after more than 3 tab switches.', 'alert-circle');
-        window.startMockInterview();
-        return;
-      }
-
       tracking.pauseInterview();
-      window.showToast(`Warning: Please stay on the interview screen. Further tab switching may terminate the interview. Tab switch ${mockInterviewState.violations} of 3.`, 'alert-triangle');
+      window.showToast(`Interview paused after leaving the interview screen. Return to continue. Tab switch ${mockInterviewState.violations}.`, 'alert-triangle');
     },
     handleVisibilityChange: function() {
       if (document.hidden) tracking.handleViolation();
@@ -2315,6 +2730,8 @@ function startMockInterviewAttentionTracking() {
 }
 
 window.cancelMockInterview = function() {
+  mockInterviewCameraRequestId++;
+  if (mockInterviewState && !mockInterviewState.report) finalizeMockInterviewProctoring(mockInterviewState, 'cancelled');
   stopMockInterviewTimer();
   stopMockInterviewAttentionTracking();
   stopMockInterviewVoice();
@@ -2323,7 +2740,34 @@ window.cancelMockInterview = function() {
   mockInterviewState = null;
   mockInterviewCameraRequestPending = false;
   mockInterviewCameraError = null;
+  mockInterviewProctoringConsent = false;
   renderMockInterviewPage();
+};
+
+window.clearMockInterviewProctoringData = async function() {
+  if (!window.AppState.user?.email || !window.AppState.profile) return;
+  if (mockInterviewState && !mockInterviewState.report) {
+    window.showToast('Finish or quit the active interview before clearing its monitoring data.', 'alert-circle');
+    return;
+  }
+  if (!window.confirm('Clear saved webcam monitoring history and all interview video recordings for this account? Interview scores will be kept. This cannot be undone.')) return;
+
+  try {
+    if (mockInterviewReadyCamera) {
+      stopMockInterviewCamera();
+      mockInterviewReadySessionId = null;
+    }
+    await window.MockInterviewRecordings.clearAll(window.AppState.user.email.toLowerCase());
+    const profile = window.AppState.profile;
+    delete profile.mockInterviewProctorHistory;
+    delete profile.activeMockInterviewProctoring;
+    if (profile.mockInterviewResults) delete profile.mockInterviewResults.monitoring;
+    window.saveState();
+    window.showToast('Saved proctoring data and recordings cleared. Interview scores were kept.', 'check');
+    renderMockInterviewPage();
+  } catch (error) {
+    window.showToast(`Could not clear saved interview data: ${error.message}`, 'alert-circle');
+  }
 };
 
 window.quitMockInterview = function() {
@@ -2332,6 +2776,14 @@ window.quitMockInterview = function() {
 };
 
 function renderMockInterviewPage() {
+  if (mockInterviewState && mockInterviewState.accountEmail !== window.AppState.user?.email?.toLowerCase()) {
+    stopMockInterviewTimer();
+    stopMockInterviewAttentionTracking();
+    stopMockInterviewVoice();
+    stopMockInterviewCamera();
+    mockInterviewState = null;
+    mockInterviewProctoringConsent = false;
+  }
   const p = window.AppState.profile;
   const container = document.getElementById('mock-interview-main-container');
   if (!container) return;
@@ -2350,6 +2802,7 @@ function renderMockInterviewPage() {
 
   if (!mockInterviewState) {
     const previous = p.mockInterviewResults;
+    const proctorHistory = Array.isArray(p.mockInterviewProctorHistory) ? [...p.mockInterviewProctorHistory].reverse() : [];
     container.innerHTML = `
       <div class="glass-card" style="margin-bottom:1.5rem; text-align:center;">
         <i data-lucide="bot" style="font-size:3.5rem; color:var(--accent-purple-light); margin-bottom:1rem;"></i>
@@ -2373,11 +2826,49 @@ function renderMockInterviewPage() {
           </div>
         </div>
 
-        <div style="display:flex; justify-content:center; gap:0.75rem; flex-wrap:wrap;">
-          <button class="btn btn-secondary btn-lg" onclick="window.enableMockInterviewCamera();"${mockInterviewReadyCamera || mockInterviewCameraRequestPending ? ' disabled' : ''}><i data-lucide="camera"></i> ${mockInterviewCameraRequestPending ? 'Requesting Camera...' : 'Enable Camera'}</button>
-          <button class="btn btn-primary btn-lg" onclick="startMockInterview();"${mockInterviewReadyCamera ? '' : ' disabled'}><i data-lucide="play"></i> Start 3-Round Mock Interview</button>
+        <div class="glass-card" style="text-align:left; margin-bottom:1rem;">
+          <h4>Webcam monitoring and privacy</h4>
+          <p style="font-size:0.84rem; color:var(--text-muted); margin-top:6px;">With your consent, this interview checks face visibility, approximate screen gaze, and visible mobile phones. These are imperfect signals for human review, not proof of cheating. Phone detection only covers objects visible in the camera frame.</p>
+          <p style="font-size:0.84rem; color:var(--text-muted); margin-top:6px;">After you enable the camera, video is recorded and saved locally in this browser for later download. Video is not uploaded to Careerverse. Recordings remain in this browser until you delete them or clear the saved data below; browser storage limits apply. Event metadata is saved with your profile, up to 20 interview sessions. Detection models are downloaded from their providers.</p>
+          <details style="margin-top:10px;">
+            <summary style="cursor:pointer;">Adjust detection thresholds</summary>
+            <div style="display:grid; gap:10px; margin-top:10px; font-size:0.82rem;">
+              <label>Face-missing warning delay: <strong id="mock-proctor-face-threshold-value">${(mockInterviewProctorThresholds.faceMissingWarningMs / 1000).toFixed(1)}s</strong>
+                <input type="range" min="2500" max="10000" step="500" value="${mockInterviewProctorThresholds.faceMissingWarningMs}" oninput="document.getElementById('mock-proctor-face-threshold-value').textContent=(this.value/1000).toFixed(1)+'s'" onchange="window.configureMockInterviewProctorThreshold('faceMissingWarningMs', this.value)">
+              </label>
+              <label>Prolonged gaze-away warning delay: <strong id="mock-proctor-gaze-threshold-value">${(mockInterviewProctorThresholds.prolongedGazeWarningMs / 1000).toFixed(1)}s</strong>
+                <input type="range" min="5000" max="15000" step="500" value="${mockInterviewProctorThresholds.prolongedGazeWarningMs}" oninput="document.getElementById('mock-proctor-gaze-threshold-value').textContent=(this.value/1000).toFixed(1)+'s'" onchange="window.configureMockInterviewProctorThreshold('prolongedGazeWarningMs', this.value)">
+              </label>
+              <label>Phone detection confidence: <strong id="mock-proctor-phone-threshold-value">${Math.round(mockInterviewProctorThresholds.phoneConfidenceThreshold * 100)}%</strong>
+                <input type="range" min="0.5" max="0.9" step="0.01" value="${mockInterviewProctorThresholds.phoneConfidenceThreshold}" oninput="document.getElementById('mock-proctor-phone-threshold-value').textContent=Math.round(this.value*100)+'%'" onchange="window.configureMockInterviewProctorThreshold('phoneConfidenceThreshold', this.value)">
+              </label>
+            </div>
+          </details>
+          <label style="display:flex; gap:8px; align-items:flex-start; margin-top:10px; cursor:pointer;">
+            <input type="checkbox" ${mockInterviewProctoringConsent ? 'checked' : ''} onchange="window.setMockInterviewProctoringConsent(this.checked)">
+            <span>I consent to webcam monitoring and video recording stored in this browser. I understand that the recording stays here until I delete or clear it.</span>
+          </label>
+          <button class="btn btn-secondary btn-sm" style="margin-top:10px;" onclick="window.clearMockInterviewProctoringData();">Clear saved proctoring data and videos</button>
+          <details style="margin-top:10px; text-align:left;">
+            <summary style="cursor:pointer;">Saved interview videos</summary>
+            <div id="mock-interview-saved-recordings" style="margin-top:8px; font-size:0.82rem;" role="status">Loading saved videos...</div>
+          </details>
         </div>
-        ${mockInterviewCameraError ? `<p style="color:var(--accent-red); margin-top:0.75rem;">${mockInterviewCameraError}</p>` : ''}
+
+        <div style="display:flex; justify-content:center; gap:0.75rem; flex-wrap:wrap;">
+          <button class="btn btn-secondary btn-lg" onclick="window.enableMockInterviewCamera();"${!mockInterviewProctoringConsent || mockInterviewReadyCamera || mockInterviewCameraRequestPending ? ' disabled' : ''}><i data-lucide="camera"></i> ${mockInterviewCameraRequestPending ? 'Requesting Camera...' : 'Enable Camera & Load Models'}</button>
+          <button class="btn btn-primary btn-lg" onclick="startMockInterview();"${mockInterviewReadyCamera && mockInterviewReadyCamera.getVideoTracks()[0]?.readyState === 'live' && mockInterviewRecordingReady && mockInterviewProctorModels && !mockInterviewProctorModelsLoading ? '' : ' disabled'}><i data-lucide="play"></i> Start Interview</button>
+        </div>
+        <div class="glass-card" style="margin-top:1rem; display:flex; align-items:center; justify-content:center; gap:1rem; flex-wrap:wrap;">
+          ${mockInterviewReadyCamera ? '<video id="mock-interview-camera-setup-preview" autoplay muted playsinline aria-label="Live webcam preview" style="width:min(320px, 100%); aspect-ratio:4 / 3; object-fit:cover; border-radius:8px; border:2px solid var(--accent-green); transform:scaleX(-1);"></video>' : '<i data-lucide="camera" style="font-size:2rem; color:var(--text-muted);"></i>'}
+          <div style="text-align:left;">
+            <strong id="mock-interview-camera-setup-status" role="status">${mockInterviewCameraRequestPending ? 'Requesting camera permission...' : mockInterviewReadyCamera ? escapeMockInterviewText(mockInterviewRecordingStatus) : 'Camera not enabled'}</strong>
+            <p style="font-size:0.8rem; color:var(--text-muted); margin-top:4px;">Allow camera access in your browser prompt. The live preview confirms the camera is working.</p>
+          </div>
+        </div>
+        ${mockInterviewCameraError ? `<p role="alert" style="color:var(--accent-red); margin-top:0.75rem;">${escapeMockInterviewText(mockInterviewCameraError)}</p>` : ''}
+        ${mockInterviewProctorModelsLoading ? '<p role="status" style="color:var(--accent-cyan); margin-top:0.75rem;">Loading local face and object detection models...</p>' : ''}
+        ${mockInterviewProctorModelError ? `<div role="alert" style="color:var(--accent-pink); margin-top:0.75rem;"><p>Webcam monitoring is unavailable: ${escapeMockInterviewText(mockInterviewProctorModelError)}</p><button class="btn btn-secondary btn-sm" onclick="window.retryMockInterviewProctorModels();">Retry model loading</button></div>` : ''}
       </div>
 
       ${previous ? `
@@ -2389,8 +2880,16 @@ function renderMockInterviewPage() {
           </div>
         </div>
       ` : ''}
+      ${proctorHistory.length ? `
+        <div class="glass-card">
+          <h4><i data-lucide="shield-alert"></i> Recent webcam monitoring sessions</h4>
+          ${proctorHistory.slice(0, 5).map(session => `<div style="padding:8px 0; border-bottom:1px solid var(--border-light); font-size:0.84rem;">${new Date(session.startedAt).toLocaleString()} · ${escapeMockInterviewText(session.status)} · ${session.warningCount} warning(s) · ${escapeMockInterviewText(session.integrity)}</div>`).join('')}
+        </div>
+      ` : ''}
     `;
     if (window.lucide) lucide.createIcons();
+    if (mockInterviewReadyCamera) updateMockInterviewCameraPreview(mockInterviewReadyCamera);
+    renderMockInterviewSavedRecordings();
     return;
   }
 
@@ -2400,8 +2899,24 @@ function renderMockInterviewPage() {
 
 window.startMockInterview = function() {
   const p = window.AppState.profile;
+  if (!p || !window.AppState.user?.email) return;
+  if (!mockInterviewProctoringConsent) {
+    mockInterviewCameraError = 'Consent to webcam monitoring before starting a monitored interview.';
+    renderMockInterviewPage();
+    return;
+  }
   if (!mockInterviewReadyCamera || mockInterviewReadyCamera.getVideoTracks()[0]?.readyState !== 'live') {
     mockInterviewCameraError = 'Enable the camera before starting the interview.';
+    renderMockInterviewPage();
+    return;
+  }
+  if (!mockInterviewRecordingReady || !mockInterviewReadySessionId) {
+    mockInterviewCameraError = 'Wait for local video recording to initialize before starting the interview.';
+    renderMockInterviewPage();
+    return;
+  }
+  if (!mockInterviewProctorModels) {
+    mockInterviewCameraError = 'Wait for both local detection models to load before starting the monitored interview.';
     renderMockInterviewPage();
     return;
   }
@@ -2415,6 +2930,12 @@ window.startMockInterview = function() {
   ];
 
   mockInterviewState = {
+    sessionId: mockInterviewReadySessionId,
+    recordingSessionId: mockInterviewReadySessionId,
+    accountEmail: window.AppState.user.email.toLowerCase(),
+    proctoringEnabled: true,
+    proctoring: null,
+    proctorMonitorActive: false,
     sequence: sequence,
     currentIndex: 0,
     answersMap: {},
@@ -2444,6 +2965,9 @@ window.startMockInterview = function() {
   };
 
   mockInterviewReadyCamera = null;
+  mockInterviewReadySessionId = null;
+  mockInterviewRecordingReady = false;
+  persistMockInterviewProctoringDraft(mockInterviewState);
 
   startMockInterviewAttentionTracking();
   requestMockInterviewFullscreen();
@@ -2455,17 +2979,21 @@ function renderMockInterviewFlow(container) {
   const st = mockInterviewState;
 
   if (st.terminated) {
+    finalizeMockInterviewProctoring(st, st.timeoutReached ? 'timed_out' : 'ended');
+    const session = getMockInterviewProctoringSummary(st, st.timeoutReached ? 'timed_out' : 'ended');
     container.innerHTML = `
       <div class="glass-card" style="max-width:760px; margin:0 auto; text-align:center;">
         <i data-lucide="${st.timeoutReached ? 'timer-off' : 'shield-alert'}" style="font-size:3.5rem; color:var(--accent-red); margin-bottom:1rem;"></i>
         <h2>${st.timeoutReached ? 'Interview Time Complete' : 'Interview Terminated'}</h2>
-        <p style="color:var(--text-muted);">${st.timeoutReached ? 'The 30-minute mock interview duration has ended. No further answers can be submitted.' : 'The interview ended after four camera-monitoring violations.'}</p>
-        ${st.timeoutReached ? '' : `<p style="font-size:0.85rem; color:var(--text-muted);">${st.cameraViolationEvents.length} monitoring events were recorded for the interview report.</p>
-        <div style="text-align:left; font-size:0.78rem; margin:1rem 0;">${st.cameraViolationEvents.map(event => `<div style="padding:6px 0; border-bottom:1px solid var(--border-light);">Warning ${event.count} - ${new Date(event.timestamp).toLocaleString()}: ${event.reason}</div>`).join('')}</div>`}
+        <p style="color:var(--text-muted);">${st.timeoutReached ? 'The 30-minute mock interview duration has ended. No further answers can be submitted.' : 'This interview has ended. Proctoring signals are retained for review and do not determine your interview result.'}</p>
+        <p style="font-size:0.85rem; color:var(--text-muted);">${session.warningCount} proctoring warning(s) recorded. ${escapeMockInterviewText(session.integrity)}</p>
+        <div style="text-align:left; font-size:0.78rem; margin:1rem 0;">${session.events.map(event => `<div style="padding:6px 0; border-bottom:1px solid var(--border-light);"><strong>${escapeMockInterviewText(event.level)}</strong> ${new Date(event.timestamp).toLocaleString()}: ${escapeMockInterviewText(event.message)}</div>`).join('')}</div>
+        <div id="mock-interview-recording-summary" class="glass-card" style="margin:1rem 0;" role="status">Finalizing your locally saved video...</div>
         <button class="btn btn-primary" onclick="window.cancelMockInterview();">Start a New Interview</button>
       </div>
     `;
     if (window.lucide) lucide.createIcons();
+    renderMockInterviewRecordingSummary(st.recordingSessionId || st.sessionId);
     return;
   }
 
@@ -2474,8 +3002,10 @@ function renderMockInterviewFlow(container) {
       <div class="glass-card" style="max-width:760px; margin:0 auto; text-align:center;">
         <i data-lucide="${st.pauseReason === 'camera' ? 'camera-off' : 'pause-circle'}" style="font-size:3.5rem; color:var(--accent-pink); margin-bottom:1rem;"></i>
         <h2>Interview Paused</h2>
-        <p style="color:var(--text-muted);">${st.pauseReason === 'camera' ? 'Camera access is required to continue. Enable your camera to resume.' : 'Return to this interview page and restore full-screen mode to continue.'}</p>
+        <p style="color:var(--text-muted);">${st.pauseReason === 'camera' ? 'Camera access is required to continue. Enable your camera to resume.' : st.pauseReason === 'models' ? `Local monitoring models are required to resume the monitored interview. ${escapeMockInterviewText(mockInterviewProctorModelError || '')}` : 'Return to this interview page and restore full-screen mode to continue.'}</p>
         ${st.pauseReason === 'camera' ? `<button class="btn btn-primary" onclick="window.resumeMockInterview();"${mockInterviewCameraRequestPending ? ' disabled' : ''}><i data-lucide="camera"></i> ${mockInterviewCameraRequestPending ? 'Requesting Camera...' : 'Enable Camera'}</button>` : ''}
+        ${st.pauseReason === 'models' ? '<button class="btn btn-primary" onclick="window.retryMockInterviewProctorModels();"' + (mockInterviewProctorModelsLoading ? ' disabled' : '') + '>Retry local models</button>' : ''}
+        ${renderMockInterviewProctoringPanel(st)}
         <button class="btn btn-secondary" onclick="window.quitMockInterview();">Quit Interview</button>
       </div>
     `;
@@ -2484,13 +3014,16 @@ function renderMockInterviewFlow(container) {
   }
 
   if (st.report) {
+    finalizeMockInterviewProctoring(st, 'completed');
     stopMockInterviewAttentionTracking();
     stopMockInterviewVoice();
     stopMockInterviewCamera();
     exitMockInterviewFullscreen();
     // Render Detailed Interview Report
     const rep = st.report;
-    const monitoring = rep.monitoring || { violationCount: 0, violationEvents: [] };
+    const monitoring = rep.monitoring || { warningCount: 0, events: [], violationCount: 0, violationEvents: [] };
+    const monitoringEvents = monitoring.events || monitoring.violationEvents || [];
+    const monitoringWarningCount = monitoring.warningCount ?? monitoring.violationCount ?? 0;
     const answerEvaluationRows = (rep.answerEvaluations || []).map(evaluation => {
       const question = st.sequence.find(item => item.id === evaluation.questionId);
       const coveredPoints = evaluation.keyPointsCovered.length > 0
@@ -2589,10 +3122,13 @@ function renderMockInterviewFlow(container) {
         </div>
 
         <div style="background:rgba(14,165,233,0.08); border:1px solid rgba(14,165,233,0.25); padding:12px; border-radius:8px; text-align:left; margin-bottom:1.5rem;">
-          <strong style="color:var(--accent-cyan);">AI Camera Monitoring</strong>
-          <p style="font-size:0.82rem; color:var(--text-muted); margin-top:5px;">${monitoring.violationCount} violation warning event(s) recorded. Natural blinking, small movements, gestures, and posture adjustments were ignored.</p>
-          ${monitoring.violationEvents.length ? `<ul style="padding-left:18px; font-size:0.78rem; margin-top:6px;">${monitoring.violationEvents.map(event => `<li>Warning ${event.count} - ${new Date(event.timestamp).toLocaleString()}: ${event.reason}</li>`).join('')}</ul>` : '<p style="font-size:0.78rem; color:var(--accent-green); margin-top:5px;">No camera-monitoring violations recorded.</p>'}
+          <strong style="color:var(--accent-cyan);">AI Proctoring Summary</strong>
+          <p style="font-size:0.82rem; color:var(--text-muted); margin-top:5px;">${monitoring.monitoringEnabled ? 'Webcam monitoring was enabled locally.' : 'Webcam monitoring was not enabled.'} ${monitoringWarningCount} warning(s). Signals are not proof of misconduct and do not automatically affect the interview score.</p>
+          ${monitoring.integrity ? `<p style="font-size:0.82rem; color:var(--text-muted);">Session integrity status: <strong>${escapeMockInterviewText(monitoring.integrity)}</strong></p>` : ''}
+          ${monitoringEvents.length ? `<ul style="padding-left:18px; font-size:0.78rem; margin-top:6px;">${monitoringEvents.map(event => `<li><strong>${escapeMockInterviewText(event.level || 'Signal')}</strong> ${new Date(event.timestamp).toLocaleString()}: ${escapeMockInterviewText(event.message || event.reason)}${event.confidence === null || event.confidence === undefined ? '' : ` (${Math.round(event.confidence * 100)}% confidence)`}</li>`).join('')}</ul>` : '<p style="font-size:0.78rem; color:var(--accent-green); margin-top:5px;">No proctoring events recorded.</p>'}
         </div>
+
+        <div id="mock-interview-recording-summary" class="glass-card" style="margin-bottom:1.5rem;" role="status">Finalizing your locally saved video...</div>
 
         <div style="display:flex; justify-content:center; gap:1rem;">
           <button class="btn btn-primary" onclick="window.cancelMockInterview();"><i data-lucide="rotate-ccw"></i> Retake Interview</button>
@@ -2601,6 +3137,7 @@ function renderMockInterviewFlow(container) {
       </div>
     `;
     if (window.lucide) lucide.createIcons();
+    renderMockInterviewRecordingSummary(st.recordingSessionId || st.sessionId);
     return;
   }
 
@@ -2631,15 +3168,15 @@ function renderMockInterviewFlow(container) {
         <strong id="mock-interview-timer" style="font-variant-numeric:tabular-nums; color:var(--accent-cyan);">${formatMockInterviewTime(st.timeRemainingMs)}</strong>
       </div>
 
-        ${st.cameraStream ? `
-        <div class="glass-card" style="margin-bottom:1.5rem; display:flex; align-items:center; gap:1rem;">
-          ${st.cameraStream ? '<video id="mock-interview-camera" autoplay muted playsinline style="width:150px; height:100px; object-fit:cover; border-radius:8px; border:2px solid var(--accent-green); transform:scaleX(-1);"></video>' : '<i data-lucide="camera" style="font-size:2rem; color:var(--accent-pink);"></i>'}
-          <div>
-            <strong>Camera Monitoring: Active</strong>
-            <p style="font-size:0.8rem; color:var(--text-muted); margin-top:4px;">AI monitors face visibility, attention direction, and sustained movement. Natural blinking, gestures, and posture changes are allowed.</p>
-          </div>
+      <div class="glass-card" style="margin-bottom:1rem; display:flex; align-items:center; gap:1rem;">
+        ${st.cameraStream ? '<video id="mock-interview-camera" autoplay muted playsinline aria-label="Your live webcam preview" style="width:160px; height:110px; object-fit:cover; border-radius:8px; border:2px solid var(--accent-green); transform:scaleX(-1);"></video>' : '<i data-lucide="camera-off" style="font-size:2rem; color:var(--accent-pink);"></i>'}
+        <div>
+          <strong>${st.cameraStream ? 'Camera status: Active' : 'Camera status: Reconnecting'}</strong>
+          <p style="font-size:0.8rem; color:var(--text-muted); margin-top:4px;">Frames are analyzed locally. Video is saved in this browser and is not uploaded. Warnings are review signals, not findings.</p>
+          <p id="mock-interview-recording-status" role="status" style="font-size:0.8rem; color:var(--accent-pink); margin-top:4px;">${escapeMockInterviewText(mockInterviewRecordingStatus)}</p>
         </div>
-      ` : (st.cameraRequestPending ? '<div class="glass-card" style="margin-bottom:1.5rem;">Requesting camera access...</div>' : '')}
+      </div>
+      ${renderMockInterviewProctoringPanel(st)}
 
       <!-- Question View Card -->
       <div class="glass-card" style="margin-bottom:1.5rem;">
@@ -2679,27 +3216,32 @@ function renderMockInterviewFlow(container) {
   `;
   if (window.lucide) lucide.createIcons();
   if (currQ.round === 3) startRound3VoiceInteraction();
-  if (st.cameraStream) {
+  if (st.proctoringEnabled && st.cameraStream) {
     const video = document.getElementById('mock-interview-camera');
     if (video) {
       video.srcObject = st.cameraStream;
       video.play().catch(() => {});
     }
-    if (mockInterviewCameraMonitor?.timer) clearTimeout(mockInterviewCameraMonitor.timer);
-    mockInterviewCameraMonitor = null;
-    startMockInterviewFaceMonitor();
+    if (window.MockInterviewProctor) window.MockInterviewProctor.setVideo(video);
+    if (!st.proctorMonitorActive) startMockInterviewProctoring(st, video);
+    if (st.proctoring) window.MockInterviewProctor.updateQuestion(currQ.id);
   }
 }
 
 window.submitMockAnswer = function() {
   const st = mockInterviewState;
   if (!st) return;
+  if (window.AppState.user?.email?.toLowerCase() !== st.accountEmail || !window.AppState.profile) {
+    window.showToast('The signed-in account changed. This interview was stopped without saving to another account.', 'alert-circle');
+    window.cancelMockInterview();
+    return;
+  }
   if (st.terminated || st.timeoutReached || Date.now() >= st.deadlineAt) {
     endMockInterviewByTimeout();
     return;
   }
   const currQ = st.sequence[st.currentIndex];
-  if (!st.cameraStream || st.cameraError) {
+  if (st.proctoringEnabled && (!st.cameraStream || st.cameraError || !st.proctorMonitorActive)) {
     window.showToast('Camera access is required to continue the interview.', 'camera');
     return;
   }
@@ -2749,12 +3291,17 @@ window.submitMockAnswer = function() {
     // Generate Report after all 3 rounds complete
     stopMockInterviewAttentionTracking();
     const reportRes = window.AnalyticsEngine.evaluateMockInterviewReport(st.answersMap, window.AppState.profile, st.sequence, {
-      violationCount: st.round3Violations,
-      violationEvents: st.cameraViolationEvents,
-      terminated: st.terminated
+      sessionId: st.sessionId,
+      monitoringEnabled: st.proctoringEnabled,
+      warningCount: st.proctoring?.warningCount || 0,
+      integrity: st.proctoring?.status?.integrity || 'Webcam monitoring not enabled',
+      thresholds: st.proctoring?.thresholds || null,
+      events: st.proctoring?.events || [],
+      terminated: false
     });
     st.report = reportRes;
 
+    finalizeMockInterviewProctoring(st, 'completed');
     window.AppState.profile.mockInterviewResults = reportRes;
     window.saveState();
 

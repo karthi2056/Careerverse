@@ -292,9 +292,103 @@ window.AnalyticsEngine = {
   },
 
   // 7. Generate AI Skill Assessment Questions (10+ mixed questions across Easy, Medium, Hard)
-  generateSkillQuestions: function(skillName) {
+  generateSkillQuestions: function(skillName, skillType = 'technical') {
     const s = (skillName || 'Programming').trim();
     const sLower = s.toLowerCase();
+
+    const buildQuestions = rows => rows.map((row, index) => {
+      const [difficulty, type, text, options, correctIndex, explanation] = row;
+      const offset = (index * 3) % options.length;
+      const rotatedOptions = options.map((_, optionIndex) => options[(optionIndex - offset + options.length) % options.length]);
+      return {
+        id: index + 1,
+        difficulty,
+        type,
+        text,
+        options: rotatedOptions,
+        correctIndex: (correctIndex + offset) % options.length,
+        explanation
+      };
+    });
+
+    if (skillType === 'soft') {
+      const families = [
+        { match: /communication|communicat|presentation|listening|negotiation/, response: 'Ask clarifying questions, listen actively, and confirm the shared understanding.', alternatives: ['Assume the other person will infer the missing details.', 'Repeat the same point more forcefully without checking understanding.', 'Avoid the conversation and let the misunderstanding continue.'] },
+        { match: /teamwork|team work|collaboration|collaborat/, response: 'Share context, hear teammates’ constraints, and agree on a clear way to contribute.', alternatives: ['Take over the work without consulting the people involved.', 'Withhold information until your part is finished.', 'Blame the teammate before understanding the blocker.'] },
+        { match: /leadership|leading|management|mentoring/, response: 'Clarify the goal, invite input, assign ownership, and follow up on progress.', alternatives: ['Make a decision without explaining the goal or listening to concerns.', 'Delegate the difficult work without authority or support.', 'Wait for someone else to resolve the uncertainty.'] },
+        { match: /problem.solv|critical.think|troubleshoot|decision.mak/, response: 'Define the problem with evidence, test likely causes, and compare practical solutions.', alternatives: ['Choose the first explanation without checking evidence.', 'Apply a broad change before identifying the cause.', 'Ignore the issue unless it affects your own task.'] }
+      ];
+      const family = families.find(item => item.match.test(sLower)) || {
+        response: `Clarify the goal for ${s}, consider the people and constraints involved, and agree on a useful next step.`,
+        alternatives: ['Act without checking the goal or constraints.', 'Avoid the situation and leave it for someone else.', 'Choose the quickest response without considering its impact.']
+      };
+      const scenarios = [
+        ['Easy', 'A teammate asks for help but the request is unclear.'],
+        ['Easy', 'Two people have different expectations about a shared task.'],
+        ['Easy', 'You notice a teammate has been left out of an important update.'],
+        ['Medium', 'A deadline is at risk because one dependency is blocked.'],
+        ['Medium', 'You receive feedback that your contribution did not meet expectations.'],
+        ['Medium', 'A disagreement is slowing a project meeting.'],
+        ['Medium', 'A plan changes after the team has already started work.'],
+        ['Hard', 'A high-impact issue appears while time and resources are limited.'],
+        ['Hard', 'A repeated team problem has no clear owner and affects delivery.'],
+        ['Hard', 'A proposed solution helps one stakeholder but creates risk for others.']
+      ];
+      const scenarioActions = [
+        'Confirm what support is needed before committing to a next step.',
+        'Agree on a shared definition of success and who owns each part.',
+        'Share the missing context and check that everyone received it.',
+        'Identify the blocker owner and coordinate a practical way to unblock it.',
+        'Ask for a concrete example and agree how to apply the feedback.',
+        'Summarize the different views and use a shared goal to guide the decision.',
+        'Explain the impact of the change and agree on updated priorities.',
+        'Surface the urgent risks and assign clear, time-bound next steps.',
+        'Describe the recurring pattern and agree who will follow up on improvement.',
+        'Compare stakeholder impacts and make the trade-offs explicit.'
+      ];
+      const rows = scenarios.map(([difficulty, situation], index) => {
+        const response = `${family.response} ${scenarioActions[index]}`;
+        return [
+          difficulty,
+          'Scenario-based',
+          `${situation} Which response best demonstrates ${s}?`,
+          [response, ...family.alternatives],
+          0,
+          response
+        ];
+      });
+      return buildQuestions(rows);
+    }
+
+    if (/(^|[^a-z])java([^a-z]|$)/.test(sLower)) {
+      return buildQuestions([
+        ['Easy', 'MCQ', 'Which Java type represents an object that can be either present or absent?', ['Optional', 'ThreadLocal', 'Stream', 'Properties'], 0, 'Optional explicitly models a potentially absent value.'],
+        ['Easy', 'MCQ', 'Which keyword prevents a Java class from being subclassed?', ['final', 'static', 'volatile', 'native'], 0, 'A final class cannot be extended.'],
+        ['Easy', 'Conceptual', 'Why should Java code use try-with-resources for AutoCloseable resources?', ['It closes the resource automatically even when an exception occurs.', 'It retries every failed operation.', 'It makes the resource globally accessible.', 'It disables checked exceptions.'], 0, 'Try-with-resources reliably closes resources at the end of the block.'],
+        ['Medium', 'Debugging', 'A Java method compares two String values with ==. What is the reliable value comparison?', ['Use equals() (or Objects.equals() when null is possible).', 'Use identityHashCode() and compare the results.', 'Convert both values to char arrays and compare references.', 'Use synchronized on both strings.'], 0, 'equals compares String contents rather than object identity.'],
+        ['Medium', 'Practical', 'A collection is modified while being iterated. What is the safest first step?', ['Use the iterator’s remove method or collect changes separately.', 'Catch and ignore every ConcurrentModificationException.', 'Replace the collection with a raw Object array.', 'Add Thread.sleep() inside the loop.'], 0, 'Mutations must follow the collection and iterator contract.'],
+        ['Medium', 'Conceptual', 'When is an interface a better choice than an abstract class in Java?', ['When unrelated implementations need to share a capability contract.', 'When every implementation must share mutable instance fields.', 'When a class must inherit from two concrete classes.', 'When object construction should be skipped.'], 0, 'Interfaces define capabilities without requiring a shared class hierarchy.'],
+        ['Medium', 'Practical', 'A stream pipeline processes a large collection and has side effects in peek(). What should you do?', ['Move required side effects to an explicit operation and keep transformations predictable.', 'Assume peek always runs for every element.', 'Parallelize the stream to guarantee ordering.', 'Call distinct() to force all side effects.'], 0, 'Stream operations may be lazy; required effects should not rely on peek.'],
+        ['Hard', 'Design', 'A Java service has high request latency and CPU use. What is the strongest next step?', ['Profile representative requests, locate the hot path, then optimize and measure again.', 'Increase the thread count before collecting evidence.', 'Replace all collections with linked lists.', 'Disable garbage collection in production.'], 0, 'Profiling identifies bottlenecks before targeted optimization.'],
+        ['Hard', 'Practical', 'A shared mutable cache is accessed by many Java threads. Which design best protects correctness?', ['Use a concurrency-safe design with atomic updates and a documented consistency policy.', 'Use HashMap and rely on thread scheduling.', 'Synchronize only cache reads.', 'Clone the cache on every request without bounds.'], 0, 'Concurrent access needs synchronization or suitable concurrent structures.'],
+        ['Hard', 'Security', 'A Java endpoint builds a SQL query from user input. What is the safest approach?', ['Use parameterized queries and validate inputs against business rules.', 'Escape quotes with a single string replacement.', 'Hide the query in a client-side script.', 'Give the database account administrator permissions.'], 0, 'Prepared statements prevent input from becoming executable SQL.']
+      ]);
+    }
+
+    if (sLower.includes('html')) {
+      return buildQuestions([
+        ['Easy', 'MCQ', 'Which HTML element represents the main content unique to a page?', ['<main>', '<footer>', '<aside>', '<nav>'], 0, '<main> identifies the page’s dominant content.'],
+        ['Easy', 'Accessibility', 'What should an informative image include for assistive technology?', ['An alt attribute describing its meaningful content.', 'A title attribute only.', 'A larger file size.', 'A CSS background instead of an image element.'], 0, 'Useful alternative text communicates the image’s purpose.'],
+        ['Easy', 'MCQ', 'Which element associates visible text with a form control?', ['<label>', '<legend>', '<caption>', '<summary>'], 0, '<label> can be programmatically associated with a form control.'],
+        ['Medium', 'Practical', 'A form field is required. Which markup communicates this requirement to browsers and assistive technology?', ['Add the required attribute and a visible, associated label.', 'Add a red border using CSS only.', 'Put “required” in a placeholder only.', 'Use a div instead of a form control.'], 0, 'Native required semantics plus a label communicate the requirement.'],
+        ['Medium', 'Semantics', 'Which element is appropriate for a self-contained composition that could stand on its own?', ['<article>', '<span>', '<br>', '<b>'], 0, '<article> represents independently meaningful content.'],
+        ['Medium', 'Practical', 'A page uses heading levels only to change font size. What is the better approach?', ['Choose headings by document structure and style them with CSS.', 'Use h1 for every visible title.', 'Replace headings with bold paragraphs.', 'Select heading levels based on their default size.'], 0, 'Heading levels should reflect the content hierarchy.'],
+        ['Medium', 'Security', 'How should untrusted text be inserted into a page?', ['Render it as text and avoid interpreting it as HTML.', 'Assign it to innerHTML without validation.', 'Place it inside a script element.', 'Encode it only after it has executed.'], 0, 'Treating untrusted input as text prevents markup injection.'],
+        ['Hard', 'Accessibility', 'A custom clickable div must behave like a native button. What is the best fix?', ['Prefer a button element; otherwise implement keyboard access, focus, and button semantics.', 'Add a pointer cursor and keep the div unfocusable.', 'Add role="button" without keyboard handling.', 'Make the div larger.'], 0, 'Native buttons provide expected keyboard, focus, and semantic behavior.'],
+        ['Hard', 'Practical', 'A responsive data table overflows on narrow screens. What is a robust solution?', ['Preserve table semantics and provide a deliberate narrow-screen layout or horizontal scroll region.', 'Remove table headers on mobile.', 'Shrink all text until it fits.', 'Convert every cell into an unrelated div.'], 0, 'Responsive treatment should retain relationships and usable content.'],
+        ['Hard', 'Standards', 'A page needs a unique primary heading and multiple content sections. Which structure is strongest?', ['Use one clear h1 followed by headings nested according to section hierarchy.', 'Use heading tags only for visual size.', 'Skip from h1 to h5 for smaller text.', 'Use headings inside every inline element.'], 0, 'A coherent heading outline improves navigation and comprehension.']
+      ]);
+    }
 
     if (sLower.includes('python')) {
       return [
@@ -311,7 +405,7 @@ window.AnalyticsEngine = {
       ];
     }
 
-    if (sLower.includes('sql')) {
+    if (/(^|[^a-z])sql([^a-z]|$)|postgres|mysql|sqlite|mariadb/.test(sLower)) {
       return [
         { id: 1, text: "Which SQL clause is used to filter records before grouping?", type: "MCQ", difficulty: "Easy", options: ["WHERE", "HAVING", "GROUP BY", "ORDER BY"], correctIndex: 0, explanation: "`WHERE` filters individual rows before `GROUP BY` aggregation." },
         { id: 2, text: "What does `COUNT(*)` return in SQL?", type: "MCQ", difficulty: "Easy", options: ["Total number of rows including NULLs", "Count of non-NULL values only", "Number of distinct columns", "Sum of integer values"], correctIndex: 0, explanation: "`COUNT(*)` counts all rows regardless of NULL values." },
@@ -326,18 +420,27 @@ window.AnalyticsEngine = {
       ];
     }
 
-    return [
-      { id: 1, text: `What is the primary core concept of ${s}?`, type: "MCQ", difficulty: "Easy", options: [`Core architecture & syntax of ${s}`, "Legacy hardware configuration", "CSS styling rules", "Manual memory page flipping"], correctIndex: 0, explanation: `Foundational mastery of ${s} starts with core architecture.` },
-      { id: 2, text: `Which standard best practice applies when developing with ${s}?`, type: "MCQ", difficulty: "Easy", options: ["Modular code separation & clean documentation", "Writing all code in a single file", "Hardcoding passwords in source code", "Disabling error logging"], correctIndex: 0, explanation: "Clean modular separation ensures maintainable code bases." },
-      { id: 3, text: `Explain the key advantage of using ${s} in production software:`, type: "Conceptual", difficulty: "Easy", options: ["High scalability, maintainability & efficiency", "Decreased security standards", "Requirement of specialized hardware only", "Incompatibility with APIs"], correctIndex: 0, explanation: `${s} enables high performance and clean system integration.` },
-      { id: 4, text: `What is the expected output when executing standard initialization in ${s}?`, type: "Output-based", difficulty: "Medium", options: ["Successful state initialization with zero uncaught exceptions", "Immediate kernel crash", "Undefined memory corruption", "Syntax error"], correctIndex: 0, explanation: "Standard initialization creates a valid instance." },
-      { id: 5, text: `Identify the common anti-pattern in ${s} implementation:`, type: "Debugging", difficulty: "Medium", options: ["Ignoring exception handling & resource cleanup", "Using version control (Git)", "Writing unit tests", "Following PEP/style conventions"], correctIndex: 0, explanation: "Neglecting resource cleanup leads to memory leaks or deadlocks." },
-      { id: 6, text: `How does ${s} handle state management or execution flow?`, type: "Conceptual", difficulty: "Medium", options: ["Via structured lifecycle management & scope rules", "Random execution order", "Manual hex editing", "Browser cookie injection"], correctIndex: 0, explanation: "Structured lifecycles control state changes predictably." },
-      { id: 7, text: `Which tool or library ecosystem pairs best with ${s}?`, type: "MCQ", difficulty: "Medium", options: [`Industry standard tooling & CLI extensions for ${s}`, "Unrelated text editor", "Legacy COBOL compiler", "Raw assembly patch"], correctIndex: 0, explanation: "Ecosystem tools streamline build & deployment steps." },
-      { id: 8, text: `In high-concurrency environments, how should ${s} be optimized?`, type: "Conceptual", difficulty: "Hard", options: ["Asynchronous non-blocking IO & efficient caching", "Synchronous blocking loops", "Increasing thread sleep intervals", "Disabling garbage collection"], correctIndex: 0, explanation: "Async non-blocking execution prevents bottlenecking." },
-      { id: 9, text: `Select the optimal algorithmic pattern for ${s} data processing:`, type: "Short coding", difficulty: "Hard", options: ["O(N log N) vector processing / streaming", "O(N^3) nested loop iteration", "O(2^N) recursive brute force", "Infinite retry loop"], correctIndex: 0, explanation: "Vectorized processing minimizes computation overhead." },
-      { id: 10, text: `What security consideration is critical when deploying ${s} microservices?`, type: "Conceptual", difficulty: "Hard", options: ["Input sanitization, TLS encryption & token auth", "Exposing raw DB connections publicly", "Storing secrets in client JS", "Disabling CORS rules"], correctIndex: 0, explanation: "Zero-trust input sanitization prevents injection vulnerabilities." }
+    const technicalScenarios = [
+      ['Easy', 'A task requires a basic feature using {skill}. Which first step is most reliable?', 'Confirm the expected input and output, then use the documented core feature.', 'Guess at behavior and skip a small verification.', 'Choose an unrelated tool because it is familiar.', 'Put configuration and secrets directly in the implementation.'],
+      ['Easy', 'A teammate must understand your {skill} work. What makes the implementation easiest to maintain?', 'Use clear names, small cohesive units, and a brief usage example.', 'Compress the implementation into one difficult-to-read expression.', 'Hide assumptions in undocumented global state.', 'Remove all checks so the code is shorter.'],
+      ['Easy', 'You are unsure whether a {skill} feature is supported in the project environment. What should you do?', 'Check the project version and authoritative documentation before relying on it.', 'Assume every version behaves identically.', 'Copy an example without checking its dependencies.', 'Disable the project’s compatibility checks.'],
+      ['Medium', 'A {skill} change works for the common case but fails on unusual input. What is the best next step?', 'Add a focused test for the boundary case and handle it deliberately.', 'Catch and ignore every error.', 'Remove input validation.', 'Retry indefinitely with the same input.'],
+      ['Medium', 'A {skill} operation is slow in production. How should you choose an optimization?', 'Measure representative workloads, identify the bottleneck, and compare the change.', 'Rewrite the whole feature before measuring it.', 'Add caching without checking freshness or memory use.', 'Increase resource limits without investigating.'],
+      ['Medium', 'A {skill} component has several responsibilities and is hard to test. What improves it?', 'Separate responsibilities behind small, testable interfaces.', 'Add more shared mutable state.', 'Couple it directly to every caller.', 'Replace tests with manual spot checks.'],
+      ['Medium', 'A {skill} workflow processes data from an external source. What is essential?', 'Validate the data at the boundary and handle invalid cases explicitly.', 'Trust the source and skip error handling.', 'Silently discard records that look unfamiliar.', 'Log credentials to diagnose failures.'],
+      ['Hard', 'A critical {skill} change must be released with low risk. Which approach is strongest?', 'Add regression tests, review failure modes, and deploy with a measured rollback plan.', 'Deploy directly to everyone without monitoring.', 'Disable observability to reduce overhead.', 'Combine unrelated changes in the same release.'],
+      ['Hard', 'A {skill} design must handle growing traffic and data volume. What should guide the design?', 'Use measured constraints, explicit limits, and a design whose costs can be monitored.', 'Assume the current workload will never change.', 'Use unbounded queues and retries.', 'Scale every component equally without evidence.'],
+      ['Hard', 'A {skill} feature handles sensitive user data. What is the best engineering practice?', 'Minimize collected data, enforce access controls, and avoid exposing secrets or raw input.', 'Store secrets in source control for easier deployment.', 'Trust client-side checks as the only authorization.', 'Log complete sensitive records for convenience.']
     ];
+    const technicalRows = technicalScenarios.map(([difficulty, prompt, best, ...alternatives]) => [
+      difficulty,
+      difficulty === 'Easy' ? 'Fundamentals' : difficulty === 'Medium' ? 'Applied' : 'Practical scenario',
+      prompt.replaceAll('{skill}', s),
+      [best, ...alternatives],
+      0,
+      best
+    ]);
+    return buildQuestions(technicalRows);
   },
 
   // 8. Evaluate Skill Assessment & Compute Authenticity
@@ -345,18 +448,34 @@ window.AnalyticsEngine = {
     let correctCount = 0;
     const strengths = [];
     const weaknesses = [];
+    const dimensionResults = {
+      correctness: { correct: 0, total: 0 },
+      relevance: { correct: 0, total: 0 },
+      practicalUnderstanding: { correct: 0, total: 0 }
+    };
 
     questions.forEach((q, idx) => {
       const selected = userAnswers[idx];
+      const dimension = q.difficulty === 'Easy' ? 'correctness' : q.difficulty === 'Medium' ? 'relevance' : 'practicalUnderstanding';
+      dimensionResults[dimension].total++;
       if (selected === q.correctIndex) {
         correctCount++;
-        strengths.push(`${q.difficulty} (${q.type})`);
+        dimensionResults[dimension].correct++;
+        strengths.push(`${dimension === 'practicalUnderstanding' ? 'Practical understanding' : dimension[0].toUpperCase() + dimension.slice(1)} (${q.difficulty})`);
       } else {
-        weaknesses.push(`${q.difficulty} (${q.type}): ${q.text.substring(0, 45)}...`);
+        weaknesses.push(`${dimension === 'practicalUnderstanding' ? 'Practical understanding' : dimension[0].toUpperCase() + dimension.slice(1)} (${q.difficulty}): ${q.text.substring(0, 45)}...`);
       }
     });
 
-    const scorePct = Math.round((correctCount / questions.length) * 100);
+    const dimensionScores = Object.fromEntries(Object.entries(dimensionResults).map(([dimension, result]) => [
+      dimension,
+      result.total ? Math.round((result.correct / result.total) * 100) : 0
+    ]));
+    const scorePct = Math.round(
+      dimensionScores.correctness * 0.4 +
+      dimensionScores.relevance * 0.3 +
+      dimensionScores.practicalUnderstanding * 0.3
+    );
 
     let assessedLevel = "Beginner";
     if (scorePct >= 85) assessedLevel = "Advanced";
@@ -368,6 +487,7 @@ window.AnalyticsEngine = {
       assessedLevel: assessedLevel,
       correctCount: correctCount,
       totalQuestions: questions.length,
+      dimensionScores: dimensionScores,
       strengths: Array.from(new Set(strengths)).slice(0, 3),
       weaknesses: weaknesses.length > 0 ? weaknesses.slice(0, 3) : ["None identified — Excellent score!"],
       date: new Date().toLocaleDateString()
@@ -376,19 +496,20 @@ window.AnalyticsEngine = {
 
   calculateSkillAuthenticity: function(profile) {
     if (!profile) return 0;
-    const claimedSkills = profile.technicalSkills || profile.skills || [];
+    const claimedSkills = [
+      ...((profile.technicalSkills && profile.technicalSkills.length > 0) ? profile.technicalSkills : (profile.skills || [])).map(name => ({ name, type: 'technical' })),
+      ...(profile.softSkills || []).map(name => ({ name, type: 'soft' }))
+    ];
     const claimedCount = claimedSkills.length;
     if (claimedCount === 0) return 0;
 
     const validatedMap = profile.skillAssessments || {};
-    const assessedKeys = Object.keys(validatedMap);
-    if (assessedKeys.length === 0) return 0;
-
     let totalScoreSum = 0;
     let validAssessedCount = 0;
 
-    assessedKeys.forEach(key => {
-      const item = validatedMap[key];
+    claimedSkills.forEach(skill => {
+      const item = validatedMap[skill.type === 'soft' ? `soft:${skill.name}` : skill.name]
+        || Object.values(validatedMap).find(result => result.skillName?.toLowerCase() === skill.name.toLowerCase() && (result.skillType || 'technical') === skill.type);
       if (item && typeof item.scorePct === 'number') {
         validAssessedCount++;
         totalScoreSum += item.scorePct;
@@ -560,9 +681,14 @@ window.AnalyticsEngine = {
       },
       answerEvaluations: answerEvaluations,
       monitoring: {
-        cameraRequired: true,
-        violationCount: monitoring.violationCount || 0,
-        violationEvents: monitoring.violationEvents || [],
+        cameraRequired: Boolean(monitoring.monitoringEnabled),
+        sessionId: monitoring.sessionId || null,
+        monitoringEnabled: Boolean(monitoring.monitoringEnabled),
+        warningCount: monitoring.warningCount ?? monitoring.violationCount ?? 0,
+        integrity: monitoring.integrity || 'Webcam monitoring not enabled',
+        events: monitoring.events || monitoring.violationEvents || [],
+        violationCount: monitoring.warningCount ?? monitoring.violationCount ?? 0,
+        violationEvents: monitoring.events || monitoring.violationEvents || [],
         terminated: Boolean(monitoring.terminated)
       },
       strengths: [

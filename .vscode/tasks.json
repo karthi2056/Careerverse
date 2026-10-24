@@ -1,0 +1,17 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run Careerverse on port 8000",
+			"type": "shell",
+			"command": "C:\\Users\\Karthikeyan\\Careerverse\\.tools\\node-v20.18.0-win-x64\\node.exe",
+			"args": [
+				"-e",
+				"const http=require('http'),fs=require('fs'),path=require('path');const root=process.cwd();http.createServer((req,res)=>{let rel=decodeURIComponent(new URL(req.url,'http://localhost').pathname);while(rel.startsWith('/'))rel=rel.slice(1);let file=path.resolve(root,rel||'index.html');if(!file.startsWith(root+path.sep)&&file!==root){res.statusCode=403;return res.end('Forbidden')}fs.stat(file,(error,stat)=>{if(!error&&stat.isDirectory())file=path.join(file,'index.html');const ext=path.extname(file);res.setHeader('Content-Type',ext==='.js'?'text/javascript':ext==='.css'?'text/css':ext==='.html'?'text/html':'application/octet-stream');fs.createReadStream(file).on('error',()=>{res.statusCode=404;res.end('Not found')}).pipe(res)})}).listen(8000,'127.0.0.1',()=>console.log('Careerverse running at http://127.0.0.1:8000'))"
+			],
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build"
+		}
+	]
+}

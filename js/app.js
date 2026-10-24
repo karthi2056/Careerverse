@@ -387,6 +387,7 @@ window.closeModal = function() {
 
 // Global Logout Handler
 window.handleLogout = function() {
+  if (typeof window.cancelMockInterview === 'function') window.cancelMockInterview();
   window.AppState.user = null;
   window.AppState.profile = null;
   window.saveState();
